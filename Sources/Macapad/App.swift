@@ -35,8 +35,14 @@ final class AppState: ObservableObject {
     @Published var hasAccessibility = Input.hasPermission
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var tailscaleHost: String?
+    @Published var settings = SettingsStore.shared.current
+    @Published var devices = Devices.shared.all
+    @Published var pending: [PairRequest] = []
 
     var token: String?
+    let windows = Windows()
+    private let bonjour = Bonjour()
+    private var bonjourUpdate: Task<Void, Never>?
     let port = Int(ProcessInfo.processInfo.environment["MACAPAD_PORT"] ?? "") ?? 7317
 
     /// Login items only work from a real .app bundle, not `swift run`.
@@ -47,6 +53,42 @@ final class AppState: ObservableObject {
 
     /// Base URL through `tailscale serve` (HTTPS), reachable from anywhere on your tailnet.
     var tailscaleURL: String? { tailscaleHost.map { "https://\($0)" } }
+
+    /// A binding that saves straight to settings.json.
+    func setting<T>(_ keyPath: WritableKeyPath<MacapadSettings, T>) -> Binding<T> {
+        Binding(
+            get: { self.settings[keyPath: keyPath] },
+            set: { value in
+                self.settings[keyPath: keyPath] = value  // right away, so text fields don't lag
+                SettingsStore.shared.update { $0[keyPath: keyPath] = value }
+            }
+        )
+    }
+
+    func settingsChanged(_ next: MacapadSettings) {
+        settings = next
+        // Wait for typing in the name field to settle before re-advertising.
+        bonjourUpdate?.cancel()
+        bonjourUpdate = Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            bonjour.apply(settings, port: port)
+        }
+    }
+
+    func startDiscovery() {
+        bonjour.apply(settings, port: port)
+    }
+
+    func pendingChanged(_ next: [PairRequest]) {
+        pending = next
+        windows.updatePairing(self)
+    }
+
+    func copy(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
 
     func refresh() {
         hasAccessibility = Input.hasPermission
@@ -84,6 +126,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let server = Server(token: token, port: state.port)
         let state = self.state
+
+        SettingsStore.shared.observe { next in Task { @MainActor in state.settingsChanged(next) } }
+        Devices.shared.observe { next in Task { @MainActor in state.devices = next } }
+        Pairing.shared.observe { next in Task { @MainActor in state.pendingChanged(next) } }
+        state.startDiscovery()
         Task.detached {
             await MainActor.run {
                 state.running = true
@@ -114,6 +161,9 @@ struct MenuContent: View {
 
     var body: some View {
         Text(state.status)
+        if let request = state.pending.first {
+            Button("Pairing request from \(request.name)…") { state.windows.updatePairing(state) }
+        }
         if !state.hasAccessibility {
             Button("⚠️ Grant Accessibility Access…") {
                 Input.requestPermission()
@@ -121,25 +171,19 @@ struct MenuContent: View {
             }
         }
         Divider()
-        Button("Copy API URL (local network)") { copy(state.lanURL) }
+        Button("Copy API URL (local network)") { state.copy(state.lanURL) }
         if let url = state.tailscaleURL {
-            Button("Copy API URL (Tailscale)") { copy(url) }
+            Button("Copy API URL (Tailscale)") { state.copy(url) }
         }
         if let token = state.token {
-            Button("Copy API Token") { copy(token) }
+            Button("Copy API Token") { state.copy(token) }
         }
         Divider()
-        Toggle("Open at Login", isOn: Binding(get: { state.openAtLogin }, set: { state.setOpenAtLogin($0) }))
-            .disabled(!state.isBundled)
-        Button("Open Config Folder") { NSWorkspace.shared.open(Config.directory) }
+        Button("Settings…") { state.windows.showSettings(state) }
+            .keyboardShortcut(",")
         Divider()
         Button("Quit Macapad") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
-    }
-
-    private func copy(_ string: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
     }
 }
 

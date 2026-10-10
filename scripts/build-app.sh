@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 APP="build/Macapad.app"
-VERSION="0.1.0"
+VERSION="0.3.0"
 # Sign with the "Macapad Dev" identity (scripts/make-signing-cert.sh) so macOS keeps the
 # Accessibility permission across rebuilds; ad-hoc otherwise. Override with SIGN_IDENTITY=...
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then

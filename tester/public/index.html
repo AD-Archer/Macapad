@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Macapad Tester</title>
+<style>
+  :root {
+    --bg: #000;
+    --group: #1c1c1e;
+    --line: #38383a;
+    --text: #fff;
+    --dim: #8e8e93;
+    --accent: #0a84ff;
+    --green: #30d158;
+    --red: #ff453a;
+    --pressed: #2c2c2e;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100dvh;
+  }
+  main {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+  }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing: .01em; margin: 12px 4px 20px; }
+  h2 { font-size: 13px; font-weight: 400; text-transform: uppercase; color: var(--dim); margin: 26px 16px 7px; letter-spacing: .02em; }
+  .note { font-size: 13px; color: var(--dim); margin: 8px 16px 0; }
+  .group { background: var(--group); border-radius: 12px; overflow: hidden; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; min-height: 54px; padding: 10px 16px;
+    background: none; border: 0; color: inherit; font: inherit; text-align: left;
+    position: relative; cursor: pointer;
+  }
+  .row + .row::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--line); }
+  .row:active { background: var(--pressed); }
+  .row .main { flex: 1; min-width: 0; }
+  .row .sub { font-size: 13px; color: var(--dim); }
+  .row .chev { color: #5a5a5e; font-size: 20px; }
+  .row.empty { color: var(--dim); cursor: default; }
+  .row.empty:active { background: none; }
+  .row .spinner { margin-right: 0; }
+  .chip { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; margin-left: 4px; }
+  .link { background: none; border: 0; color: var(--accent); font: inherit; padding: 14px 16px; cursor: pointer; }
+  .back { margin-left: -12px; padding-left: 4px; }
+
+  .center { text-align: center; padding-top: 6vh; }
+  .center h1 { margin: 18px 0 8px; font-size: 28px; }
+  .center p { color: var(--dim); max-width: 340px; margin: 0 auto; }
+  .big-icon { font-size: 54px; line-height: 1; }
+  .code { font: 600 56px/1 ui-rounded, "SF Pro Rounded", -apple-system, system-ui; letter-spacing: .18em; margin: 30px 0 10px; font-variant-numeric: tabular-nums; }
+  .spinner { width: 22px; height: 22px; border: 2.5px solid var(--line); border-top-color: var(--dim); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; vertical-align: -5px; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+  input {
+    width: 100%; background: var(--group); color: var(--text); border: 0; border-radius: 12px;
+    font: inherit; font-size: 20px; padding: 16px; outline: none;
+  }
+  input:focus { box-shadow: 0 0 0 2px var(--accent); }
+  .button {
+    display: block; width: 100%; margin-top: 16px; padding: 15px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .button:disabled { opacity: .4; }
+  .button.plain { background: var(--group); color: var(--text); font-weight: 400; }
+  .button.danger { background: none; color: var(--red); font-weight: 400; }
+  .error { color: var(--red); font-size: 15px; margin: 12px 4px 0; min-height: 1.3em; }
+
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+  .key {
+    aspect-ratio: 1; border: 0; border-radius: 22px; background: var(--group); color: var(--text);
+    font: inherit; font-size: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+    transition: transform .08s, background .08s;
+  }
+  .key svg { width: 34px; height: 34px; }
+  .key:active { transform: scale(.94); background: var(--pressed); }
+  .key.ok { box-shadow: inset 0 0 0 2px var(--green); }
+  .key.fail { box-shadow: inset 0 0 0 2px var(--red); }
+  .status { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 15px; margin: -12px 4px 18px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dot.on { background: var(--green); }
+  .dot.off { background: var(--red); }
+
+  /* Echo Show 5 and phones held sideways: put the pad beside the title. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    main { max-width: 900px; }
+    .pad-screen { display: grid; grid-template-columns: 1fr 1.3fr; gap: 24px; align-items: start; }
+    .pad-screen h1 { margin-top: 4px; }
+    .pad { grid-template-columns: repeat(3, 1fr); margin-top: 0; }
+    .key { aspect-ratio: auto; height: 118px; }
+    .center { padding-top: 2vh; }
+    .code { margin: 16px 0 6px; }
+  }
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script>
+const STORE = "macapad-tester";
+const app = document.getElementById("app");
+
+// ---------- saved Macs ----------
+
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE))?.macs ?? []; } catch { return []; }
+}
+function save(macs) {
+  try { localStorage.setItem(STORE, JSON.stringify({ macs })); } catch {}
+}
+function remember(mac) {
+  save([...loadSaved().filter((m) => m.id !== mac.id), mac]);
+}
+function forget(id) {
+  save(loadSaved().filter((m) => m.id !== id));
+}
+
+// ---------- talking to a Mac ----------
+
+async function call(url, path, { token, method = "GET", body, timeout = 4000 } = {}) {
+  const res = await fetch(url + path, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(timeout),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data?.error?.message ?? `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+/** The first route this browser can actually reach (LAN first: it's quicker). */
+async function reachable(routes) {
+  const ordered = [...routes].sort((a, b) => (a.via === "lan" ? -1 : 1) - (b.via === "lan" ? -1 : 1));
+  let lastError;
+  for (const route of ordered) {
+    try {
+      const health = await call(route.url, "/api/health", { timeout: 2500 });
+      return { route, health };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError ?? new Error("No way to reach this Mac");
+}
+
+function guessDeviceName() {
+  const ua = navigator.userAgent;
+  if (/Silk|KFAPWI|AEO/.test(ua)) return "Echo Show";
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android phone" : "Android tablet";
+  if (/Macintosh/.test(ua)) return "Mac browser";
+  if (/Windows/.test(ua)) return "Windows PC";
+  return "Web browser";
+}
+
+const viaLabel = { lan: "Wi-Fi", tailscale: "Tailscale" };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// ---------- screens ----------
+
+let found = null; // last discovery result, or null while searching
+let searchToken = 0;
+
+async function home() {
+  renderHome();
+  const mine = ++searchToken;
+  found = null;
+  try {
+    const res = await fetch("/discover", { cache: "no-store" });
+    found = (await res.json()).macs;
+  } catch {
+    found = [];
+  }
+  if (mine === searchToken && app.dataset.screen === "home") renderHome();
+}
+
+function renderHome() {
+  app.dataset.screen = "home";
+  const saved = loadSaved();
+  const nearby = (found ?? []).filter((m) => !saved.some((s) => s.id === m.id));
+  app.innerHTML = `
+    <h1>Macapad</h1>
+    ${saved.length ? `
+      <h2>Your Macs</h2>
+      <div class="group">
+        ${saved.map((m) => `
+          <button class="row" data-open="${esc(m.id)}">
+            <span class="main">${esc(m.name)}<div class="sub">Paired as “${esc(m.deviceName)}”</div></span>
+            <span class="chev">›</span>
+          </button>`).join("")}
+      </div>` : ""}
+    <h2>Nearby Macs</h2>
+    <div class="group">
+      ${found === null ? `<div class="row empty"><span class="spinner"></span>Looking for Macs…</div>` :
+        nearby.length === 0 ? `<div class="row empty">${saved.length ? "No other Macs found." : "No Macs found. Is Macapad running?"}</div>` :
+        nearby.map((m) => `
+          <button class="row" data-pair="${esc(m.id)}">
+            <span class="main">${esc(m.name)}<div class="sub">${m.routes.map((r) => `<span class="chip">${viaLabel[r.via]}</span>`).join("")}</div></span>
+            <span class="chev">›</span>
+          </button>`).join("")}
+    </div>
+    <p class="note">Tap a Mac to pair with it. You’ll confirm on the Mac.</p>
+    <button class="link" id="again">Search again</button>
+    <button class="link" id="manual">Type an address instead</button>
+  `;
+  app.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => pad(saved.find((m) => m.id === b.dataset.open)));
+  app.querySelectorAll("[data-pair]").forEach((b) => b.onclick = () => askName(found.find((m) => m.id === b.dataset.pair)));
+  app.querySelector("#again").onclick = home;
+  app.querySelector("#manual").onclick = manual;
+}
+
+function manual() {
+  app.dataset.screen = "manual";
+  app.innerHTML = `
+    <button class="link back" id="back">‹ Back</button>
+    <h1>Mac’s address</h1>
+    <form id="f">
+      <input id="addr" placeholder="192.168.1.20" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" autofocus>
+      <p class="note">Find it in Macapad’s menu: Copy API URL.</p>
+      <p class="error" id="err"></p>
+      <button class="button" id="go">Continue</button>
+    </form>
+  `;
+  app.querySelector("#back").onclick = home;
+  app.querySelector("#f").onsubmit = async (e) => {
+    e.preventDefault();
+    const err = app.querySelector("#err");
+    const go = app.querySelector("#go");
+    let url = app.querySelector("#addr").value.trim().replace(/\/+$/, "");
+    if (!url) return;
+    if (!/^https?:\/\//.test(url)) url = "http://" + url;
+    if (!/:\d+$/.test(new URL(url).host) && url.startsWith("http://")) url += ":7317";
+    go.disabled = true;
+    err.textContent = "";
+    try {
+      const h = await call(url, "/api/health", { timeout: 3000 });
+      if (!h.mac) throw new Error("That Mac isn’t letting devices find it from here. Check Macapad Settings.");
+      askName({ id: h.mac.id, name: h.mac.name, routes: [{ via: "manual", url }] });
+    } catch (e) {
+      err.textContent = e.name === "TimeoutError" || e instanceof TypeError ? "Couldn’t reach a Mac at that address." : e.message;
+      go.disabled = false;
+    }
+  };
+}
+
+function askName(mac) {
+  app.dataset.screen = "name";
+  app.innerHTML = `
+    <button class="link back" id="back">‹ Back</button>
+    <h1>What’s this device called?</h1>
+    <form id="f">
+      <input id="name" maxlength="60" value="${esc(guessDeviceName())}" autofocus>
+      <p class="note">${esc(mac.name)} will show this name when it asks you to allow it.</p>
+      <p class="error" id="err"></p>
+      <button class="button" id="go">Pair</button>
+    </form>
+  `;
+  app.querySelector("#back").onclick = home;
+  app.querySelector("#f").onsubmit = (e) => {
+    e.preventDefault();
+    const name = app.querySelector("#name").value.trim();
+    if (name) pair(mac, name, app.querySelector("#err"), app.querySelector("#go"));
+  };
+}
+
+async function pair(mac, deviceName, errEl, button) {
+  button.disabled = true;
+  errEl.textContent = "";
+  let route, started;
+  try {
+    ({ route } = await reachable(mac.routes));
+    started = await call(route.url, "/api/pair", { method: "POST", body: { name: deviceName, app: "Macapad Tester" } });
+  } catch (e) {
+    errEl.textContent = e instanceof TypeError || e.name === "TimeoutError" ? "Couldn’t reach this Mac from here." : e.message;
+    button.disabled = false;
+    return;
+  }
+
+  app.dataset.screen = "waiting";
+  app.innerHTML = `
+    <div class="center">
+      <div class="big-icon">💻</div>
+      <h1>Check your Mac</h1>
+      <p>Click <b>Allow</b> on ${esc(started.mac.name)} if it shows this code:</p>
+      <div class="code">${esc(started.code)}</div>
+      <p><span class="spinner"></span>Waiting…</p>
+      <button class="button plain" id="cancel" style="max-width:240px;margin:40px auto 0">Cancel</button>
+    </div>
+  `;
+  let cancelled = false;
+  app.querySelector("#cancel").onclick = () => { cancelled = true; home(); };
+
+  // Long-poll: each request waits up to 25s on the Mac for a decision.
+  while (!cancelled) {
+    let res;
+    try {
+      res = await call(route.url, `/api/pair/${started.id}?wait=25`, { timeout: 30000 });
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500)); // network blip: keep waiting
+      continue;
+    }
+    if (cancelled) return;
+    if (res.status === "pending") continue;
+    if (res.status === "approved") {
+      const saved = { id: started.mac.id, name: started.mac.name, routes: mac.routes, token: res.token, deviceId: res.device.id, deviceName };
+      remember(saved);
+      return paired(saved);
+    }
+    return outcome(
+      res.status === "denied" ? "✋" : "⏱",
+      res.status === "denied" ? "Your Mac said no" : "That took too long",
+      res.status === "denied" ? "Someone clicked Don’t Allow on the Mac." : "Pairing requests expire after two minutes.",
+      () => askName(mac),
+    );
+  }
+}
+
+function paired(mac) {
+  outcome("✅", "Paired", `This device can now control ${esc(mac.name)}.`, () => pad(mac), "Try it");
+}
+
+function outcome(icon, title, text, next, nextLabel = "Try again") {
+  app.dataset.screen = "outcome";
+  app.innerHTML = `
+    <div class="center">
+      <div class="big-icon">${icon}</div>
+      <h1>${title}</h1>
+      <p>${text}</p>
+      <div style="max-width:280px;margin:36px auto 0">
+        <button class="button" id="next">${nextLabel}</button>
+        <button class="button plain" id="home">Done</button>
+      </div>
+    </div>
+  `;
+  app.querySelector("#next").onclick = next;
+  app.querySelector("#home").onclick = home;
+}
+
+const ICONS = {
+  previous: '<path d="M6 6h2v12H6zM9.5 12 18 18V6z"/>',
+  playPause: '<path d="M4 5v14l9-7zM15 5h2.5v14H15zM19.5 5H22v14h-2.5z"/>',
+  next: '<path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/>',
+  volumeDown: '<path d="M5 9v6h4l5 5V4L9 9zM16.5 12A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z"/>',
+  mute: '<path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.2l2.45 2.45c.03-.2.05-.42.05-.65zM19 12c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06A7 7 0 0 1 19 12zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a9 9 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9zM12 4 9.91 6.09 12 8.18z"/>',
+  volumeUp: '<path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z"/>',
+};
+const KEYS = [
+  ["previous", "Previous"], ["playPause", "Play / Pause"], ["next", "Next"],
+  ["volumeDown", "Volume down"], ["mute", "Mute"], ["volumeUp", "Volume up"],
+];
+
+async function pad(mac) {
+  app.dataset.screen = "pad";
+  app.innerHTML = `
+    <button class="link back" id="back">‹ Macs</button>
+    <div class="pad-screen">
+      <div>
+        <h1>${esc(mac.name)}</h1>
+        <div class="status"><span class="dot" id="dot"></span><span id="state">Connecting…</span></div>
+        <button class="button danger" id="forget" style="text-align:left;padding-left:4px">Forget this Mac</button>
+      </div>
+      <div class="pad">
+        ${KEYS.map(([key, label]) => `
+          <button class="key" data-key="${key}" aria-label="${label}">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ICONS[key]}</svg>${label}
+          </button>`).join("")}
+      </div>
+    </div>
+  `;
+  app.querySelector("#back").onclick = home;
+  const dot = app.querySelector("#dot");
+  const state = app.querySelector("#state");
+
+  let route;
+  try {
+    ({ route } = await reachable(mac.routes));
+    await call(route.url, "/api/me", { token: mac.token });
+    dot.className = "dot on";
+    state.textContent = `Connected over ${viaLabel[route.via] ?? "your network"}`;
+  } catch (e) {
+    dot.className = "dot off";
+    if (e.status === 401) {
+      forget(mac.id);
+      return outcome("🔌", "This Mac removed this device", "It was unpaired in Macapad Settings. Pair again to keep using it.", () => askName(mac), "Pair again");
+    }
+    state.textContent = e.status === 403 ? e.message : "Can’t reach this Mac right now";
+  }
+
+  app.querySelectorAll("[data-key]").forEach((button) => {
+    button.onclick = async () => {
+      button.classList.remove("ok", "fail");
+      try {
+        if (!route) throw new Error("offline");
+        const res = await call(route.url, "/api/run", { token: mac.token, method: "POST", body: { steps: [{ type: "media", key: button.dataset.key }] } });
+        button.classList.add(res.ok ? "ok" : "fail");
+        if (!res.ok) state.textContent = res.error;
+      } catch (e) {
+        button.classList.add("fail");
+        if (e.status === 401) return pad(mac);
+      }
+      setTimeout(() => button.classList.remove("ok", "fail"), 600);
+    };
+  });
+
+  app.querySelector("#forget").onclick = async () => {
+    // Tell the Mac too, so it drops this device from its list.
+    if (route) await call(route.url, "/api/me", { token: mac.token, method: "DELETE" }).catch(() => {});
+    forget(mac.id);
+    home();
+  };
+}
+
+home();
+</script>
+</body>
+</html>

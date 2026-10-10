@@ -4,12 +4,65 @@ import Hummingbird
 import HummingbirdWebSocket
 import NIOCore
 
-typealias Context = BasicWebSocketRequestContext
+/// Per-request context: Hummingbird's WebSocket context plus who's calling and from where.
+struct MacapadContext: RequestContext, WebSocketRequestContext {
+    typealias Source = ApplicationRequestContextSource
+    var coreContext: CoreRequestContextStorage
+    let webSocket: WebSocketHandlerReference<Self>
+    let remoteAddress: String?
+    /// Set by NetworkMiddleware.
+    var network: NetworkKind = .internet
+    /// Set by AuthMiddleware; nil on the few routes that don't need a token.
+    var caller: Caller?
+
+    init(source: ApplicationRequestContextSource) {
+        coreContext = .init(source: source)
+        webSocket = .init()
+        remoteAddress = source.channel.remoteAddress?.ipAddress
+    }
+}
 
 struct Health: Codable, ResponseEncodable {
     var ok = true
     var name = "macapad"
-    var version = "0.2.0"
+    var version = "0.3.0"
+    /// Which network this Mac thinks you're on: thisMac, lan, tailscale or internet.
+    var network: NetworkKind?
+    /// Only on networks where the Mac is discoverable.
+    var mac: MacInfo?
+    /// True when you can ask to pair from where you are.
+    var pairing: Bool?
+}
+
+struct MacInfo: Codable {
+    var id: String
+    var name: String
+}
+
+struct PairStart: Decodable {
+    var name: String
+    var app: String?
+}
+
+struct PairStarted: Codable, ResponseEncodable {
+    var id: String
+    var code: String
+    var expiresIn: Int
+    var mac: MacInfo
+}
+
+struct PairStatus: Codable, ResponseEncodable {
+    /// pending, approved, denied or expired
+    var status: String
+    var token: String?
+    var device: PairedDevice?
+}
+
+struct Me: Codable, ResponseEncodable {
+    /// True for the token in ~/.macapad/token.
+    var owner: Bool
+    var device: PairedDevice?
+    var mac: MacInfo
 }
 
 struct RunRequest: Decodable {
@@ -38,16 +91,80 @@ final class Server: Sendable {
     }
 
     func run() async throws {
-        let router = Router(context: Context.self)
+        let router = Router(context: MacapadContext.self)
         router.add(middleware: PrivateNetworkAccessMiddleware())
         router.add(middleware: CORSMiddleware(
             allowOrigin: .originBased,
             allowHeaders: [.accept, .authorization, .contentType, .origin],
             allowMethods: [.get, .post, .delete, .options]
         ))
-        router.add(middleware: TokenMiddleware(token: token))
+        router.add(middleware: NetworkMiddleware())
+        router.add(middleware: AuthMiddleware(token: token))
 
-        router.get("/api/health") { _, _ in Health() }
+        router.get("/api/health") { _, context -> Health in
+            let settings = SettingsStore.shared.current
+            guard settings.discoverable(context.network) else { return Health(network: context.network) }
+            return Health(network: context.network, mac: Self.macInfo(settings), pairing: true)
+        }
+
+        router.post("/api/pair") { request, context -> PairStarted in
+            let settings = SettingsStore.shared.current
+            guard settings.discoverable(context.network) else {
+                throw HTTPError(.forbidden, message: "This Mac doesn't accept pairing requests from \(context.network.label)")
+            }
+            let body = try await request.decode(as: PairStart.self, context: context)
+            let name = body.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name.count <= 60 else {
+                throw HTTPError(.badRequest, message: "name is required (up to 60 characters)")
+            }
+            let app = body.app?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40)
+            do {
+                let pair = try Pairing.shared.create(
+                    name: name, app: app.flatMap { $0.isEmpty ? nil : String($0) },
+                    network: context.network, address: context.remoteAddress ?? ""
+                )
+                return PairStarted(id: pair.id, code: pair.code, expiresIn: Int(Pairing.lifetime), mac: Self.macInfo(settings))
+            } catch let error as PairError {
+                throw HTTPError(.tooManyRequests, message: error.localizedDescription)
+            }
+        }
+
+        // ?wait=<seconds> holds the request open (up to 30s) until you decide on the Mac.
+        router.get("/api/pair/:id") { request, context -> PairStatus in
+            let id = try context.parameters.require("id")
+            let wait = min(30, max(0, request.uri.queryParameters.get("wait").flatMap { Double($0) } ?? 0))
+            let deadline = Date().addingTimeInterval(wait)
+            while true {
+                switch Pairing.shared.collect(id) {
+                case .approved(let device, let token):
+                    return PairStatus(status: "approved", token: token, device: device.publicInfo)
+                case .denied:
+                    return PairStatus(status: "denied")
+                case nil:
+                    return PairStatus(status: "expired")
+                case .pending:
+                    if Date() >= deadline { return PairStatus(status: "pending") }
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+            }
+        }
+
+        router.get("/api/me") { _, context -> Me in
+            let mac = Self.macInfo(SettingsStore.shared.current)
+            if case .device(let device) = context.caller {
+                return Me(owner: false, device: device.publicInfo, mac: mac)
+            }
+            return Me(owner: true, mac: mac)
+        }
+
+        // Lets a device forget this Mac (unpair itself).
+        router.delete("/api/me") { _, context -> RunResult in
+            guard case .device(let device) = context.caller else {
+                throw HTTPError(.badRequest, message: "The owner token can't be unpaired")
+            }
+            Devices.shared.remove(device.id)
+            return RunResult(ok: true)
+        }
 
         router.post("/api/run") { request, context -> RunResult in
             let body = try await request.decode(as: RunRequest.self, context: context)
@@ -92,8 +209,14 @@ final class Server: Sendable {
 
         router.get("/api/shortcuts") { _, _ in ShortcutList(shortcuts: await Apps.shortcuts()) }
 
-        router.ws("/api/ws") { inbound, outbound, _ in
+        router.ws("/api/ws") { inbound, outbound, context in
+            let suppliedToken = context.request.uri.queryParameters.get("token") ?? ""
             for try await message in inbound.messages(maxSize: 1 << 20) {
+                // A device removed in Settings loses its open connection on its next message.
+                guard AuthMiddleware.caller(for: suppliedToken, owner: self.token) != nil else {
+                    try await outbound.close(.policyViolation, reason: "Unpaired")
+                    return
+                }
                 guard case .text(let text) = message,
                       let msg = try? JSONDecoder().decode(ClientMessage.self, from: Data(text.utf8))
                 else { continue }
@@ -124,6 +247,10 @@ final class Server: Sendable {
         try await app.runService(gracefulShutdownSignals: [])
     }
 
+    static func macInfo(_ settings: MacapadSettings) -> MacInfo {
+        MacInfo(id: settings.id, name: settings.displayName)
+    }
+
     static func execute(_ steps: [Step]) async -> RunResult {
         do {
             try await Runner.run(steps)
@@ -146,30 +273,48 @@ private struct AnyEncodable: Encodable {
     func encode(to encoder: Encoder) throws { try value.encode(to: encoder) }
 }
 
-/// Requires the API token on /api/* (except health). Accepts `Authorization: Bearer <token>`
+/// Refuses requests from networks turned off in Settings, and records the network on the context.
+struct NetworkMiddleware: RouterMiddleware {
+    func handle(_ request: Request, context: MacapadContext, next: (Request, MacapadContext) async throws -> Response) async throws -> Response {
+        var context = context
+        context.network = Network.classify(remote: context.remoteAddress, headers: request.headers)
+        guard SettingsStore.shared.current.allows(context.network) else {
+            throw HTTPError(.forbidden, message: "Macapad is set to refuse connections from \(context.network.label)")
+        }
+        return try await next(request, context)
+    }
+}
+
+/// Requires a token on /api/*, except health and pairing. Accepts the owner token
+/// (~/.macapad/token) or a paired device's token, as `Authorization: Bearer <token>`
 /// or `?token=<token>` (browsers can't set headers on WebSocket connections).
-struct TokenMiddleware<C: RequestContext>: RouterMiddleware {
+struct AuthMiddleware: RouterMiddleware {
     let token: String
 
-    func handle(_ request: Request, context: C, next: (Request, C) async throws -> Response) async throws -> Response {
+    func handle(_ request: Request, context: MacapadContext, next: (Request, MacapadContext) async throws -> Response) async throws -> Response {
         let path = request.uri.path
-        guard path.hasPrefix("/api/"), path != "/api/health" else {
+        let isPublic = path == "/api/health"
+            || (path == "/api/pair" && request.method == .post)
+            || (path.hasPrefix("/api/pair/") && request.method == .get)
+        guard path.hasPrefix("/api/"), !isPublic else {
             return try await next(request, context)
         }
         let bearer = request.headers[.authorization].flatMap { header in
             header.hasPrefix("Bearer ") ? String(header.dropFirst(7)) : nil
         }
         let supplied = bearer ?? request.uri.queryParameters.get("token") ?? ""
-        guard constantTimeEquals(supplied, token) else {
+        guard let caller = Self.caller(for: supplied, owner: token) else {
             throw HTTPError(.unauthorized, message: "Missing or wrong token")
         }
+        var context = context
+        context.caller = caller
         return try await next(request, context)
     }
 
-    private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
-        let a = Array(a.utf8), b = Array(b.utf8)
-        guard a.count == b.count else { return false }
-        return zip(a, b).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
+    static func caller(for supplied: String, owner: String) -> Caller? {
+        guard !supplied.isEmpty else { return nil }
+        if Devices.constantTimeEquals(supplied, owner) { return .owner }
+        return Devices.shared.authenticate(supplied).map(Caller.device)
     }
 }
 

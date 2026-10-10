@@ -8,6 +8,9 @@ A menu bar app that lets any frontend control your Mac over HTTP and WebSocket:
 media keys, keyboard shortcuts, opening URLs and apps, running Shortcuts and AppleScript.
 Macapad has no interface of its own. You build the frontend; Macapad runs whatever steps it sends.
 
+## Warning
+This probably isn't safe to expose to the web, do not allow your mac to be controlled outisde of your lan unless you know what you're doing
+
 ## Run it
 
 ```sh
@@ -23,7 +26,23 @@ permission across rebuilds. Without it the app is signed ad-hoc and every rebuil
 
 For development: `swift run`. The menu bar shows a fallback grid icon because the custom icons only load from the bundled app. Set `MACAPAD_PORT` to change the port (default `7317`).
 
-The menu bar icon has **Copy API URL** and **Copy API Token** items.
+The menu bar icon has **Copy API URL**, **Copy API Token** and **Settings…** items.
+
+## Settings
+
+**Settings…** in the menu bar (⌘,) controls who can reach the Mac. They're saved in `~/.macapad/settings.json`.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Name | the Mac's name | What devices see when they find this Mac |
+| Local network → Allow connections | on | Accept requests from devices on your Wi-Fi/Ethernet |
+| Local network → Let devices find this Mac | on | Advertise over Bonjour and accept pairing requests from the LAN |
+| Tailscale → Allow connections | on | Accept requests from your tailnet (directly or through `tailscale serve`) |
+| Tailscale → Let devices find this Mac | on | Show the Mac's name in `/api/health` and accept pairing requests from the tailnet |
+| Internet → Allow connections | off | Accept requests from any other address (port forwarding, Tailscale Funnel). Pairing is never allowed from here |
+| Paired devices | | Every device you've allowed, with **Remove** to cut one off |
+
+Programs on the Mac itself (localhost) are always allowed. A request from a network that's turned off gets `403`.
 
 ## Connecting
 
@@ -36,12 +55,39 @@ The menu bar icon has **Copy API URL** and **Copy API Token** items.
 **If your frontend page is served over `https://`, it must call the HTTPS URL.**
 Browsers block `https` pages from calling `http` addresses (mixed content).
 
-CORS is open to any origin. Every request except `/api/health` needs the token:
+CORS is open to any origin. Every request except `/api/health` and pairing needs a token:
 
 - HTTP: `Authorization: Bearer <token>`
 - WebSocket: `?token=<token>` (browsers can't set headers on WebSockets)
 
-The token lives in `~/.macapad/token`. Delete that file and relaunch to get a new one.
+There are two kinds of token:
+
+- **Device tokens** come from [pairing](#discovery-and-pairing). Each device gets its own, and you can remove one in Settings without touching the others. Only a hash is stored on the Mac (`~/.macapad/devices.json`).
+- **The owner token** lives in `~/.macapad/token`, for scripts and frontends set up by hand. Delete that file and relaunch to get a new one.
+
+## Discovery and pairing
+
+Frontends can find the Mac and ask for a token instead of you copying one over.
+
+**Finding Macs.**
+
+- *Local network:* Macapad advertises `_macapad._tcp` over Bonjour, with `id`, `name` and `v` in its TXT record.
+  Browsers can't browse Bonjour, so a web frontend needs a small server (or the native app it runs in) to do this.
+- *Tailscale:* there's no multicast on a tailnet. List your devices (`tailscale status --json`) and call
+  `GET http://<tailscale-ip>:7317/api/health` on each. A Mac that's discoverable answers with a `mac` field.
+
+The same Mac found both ways has the same `mac.id`, so you can merge them.
+
+**Pairing.**
+
+1. `POST /api/pair` with `{"name":"Kitchen iPad","app":"archersdesk"}`. You get back
+   `{"id":"<secret>","code":"4821","expiresIn":120,"mac":{...}}`. Show the `code` to the person.
+2. The Mac pops up a prompt with the device name and the same code, and asks Allow / Don't Allow.
+3. Poll `GET /api/pair/<id>?wait=25`. Each call waits up to 25 s for a decision, then returns
+   `{"status":"pending"}`, `{"status":"approved","token":"…","device":{…}}`, `{"status":"denied"}` or `{"status":"expired"}`.
+   The token is handed out once; keep it.
+
+Requests expire after two minutes. A device can only have one request waiting at a time, and the Mac holds at most three.
 
 ## Steps
 
@@ -75,7 +121,11 @@ Keys map to physical positions on a US keyboard layout.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.1.0"}` |
+| GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.3.0","network":"lan","mac":{"id","name"},"pairing":true}`; `mac` and `pairing` only where the Mac is discoverable |
+| POST | `/api/pair` | `{"name","app"?}` (no token needed) | `{"id","code","expiresIn","mac"}`; see [pairing](#discovery-and-pairing) |
+| GET | `/api/pair/:id?wait=25` | none (no token needed) | `{"status":"pending"\|"approved"\|"denied"\|"expired","token"?,"device"?}` |
+| GET | `/api/me` | none | `{"owner":false,"device":{…},"mac":{…}}`: who your token belongs to |
+| DELETE | `/api/me` | none | `{"ok":true}`: unpairs this device (owner token can't) |
 | POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}` |
 | GET | `/api/actions` | none | `{"actions":[...]}`: built-ins, then yours |
 | POST | `/api/actions` | an action | the saved action (adds, or replaces the same `id`) |
@@ -133,6 +183,8 @@ Use this for a frontend that stays open. It's faster than a new HTTP request for
 - `{"type":"run","ref":"<anything>","steps":[...]}`
 - `{"type":"ping"}`: send one every ~25s to keep proxies from closing the connection.
 
+If you remove a device in Settings, its open WebSocket is closed the next time it sends anything.
+
 ```js
 const ws = new WebSocket(`${base.replace(/^http/, "ws")}/api/ws?token=${token}`);
 ws.onmessage = (e) => {
@@ -143,6 +195,18 @@ ws.onopen = () => {
   ws.send(JSON.stringify({ type: "run", ref: "skip", steps: [{ type: "media", key: "next" }] }));
 };
 ```
+
+## Tester
+
+`tester/` is a throwaway web app for trying discovery and pairing from a phone. Its Node server finds Macs
+(Bonjour + your tailnet); the page then pairs and presses media keys by talking straight to the Mac.
+
+```sh
+cd tester && pnpm install && pnpm start   # then open http://<this-computer>:7318 on your phone
+```
+
+Run it on the Mac and open it from your phone to see the LAN and Tailscale settings take effect. Opened on the
+Mac itself, every request counts as "this Mac", which is always allowed.
 
 ## Icons
 

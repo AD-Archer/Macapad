@@ -12,13 +12,16 @@ enum Config {
             .trimmingCharacters(in: .whitespacesAndNewlines), !existing.isEmpty {
             return existing
         }
-        var bytes = [UInt8](repeating: 0, count: 24)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        let token = randomHex(bytes: 24)
         try token.write(to: tokenURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenURL.path)
         return token
+    }
+
+    /// Cryptographically random bytes as lowercase hex.
+    static func randomHex(bytes count: Int) -> String {
+        var bytes = [UInt8](repeating: 0, count: count)
+        precondition(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess, "No randomness")
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 }

@@ -5,10 +5,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="build/Macapad.app"
 VERSION="0.1.0"
-# Sign with a real identity if you have one (keeps Accessibility permission across rebuilds);
-# otherwise ad-hoc. Override with SIGN_IDENTITY="Apple Development: ..." if you have several.
-SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' 'NR==1 && /"/ {print $2}')}"
-SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+# Sign with the "Macapad Dev" identity (scripts/make-signing-cert.sh) so macOS keeps the
+# Accessibility permission across rebuilds; ad-hoc otherwise. Override with SIGN_IDENTITY=...
+if [[ -z "${SIGN_IDENTITY:-}" ]]; then
+  if security find-identity -p codesigning | grep -q '"Macapad Dev"'; then
+    SIGN_IDENTITY="Macapad Dev"
+  else
+    SIGN_IDENTITY="-"
+    echo "note: ad-hoc signing; run scripts/make-signing-cert.sh once to stop Accessibility re-prompts"
+  fi
+fi
 
 swift build -c release --arch arm64
 

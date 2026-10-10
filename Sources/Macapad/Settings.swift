@@ -39,6 +39,8 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var pausedUntil: Date?
     /// Hours devices can be set to work in. Devices without one work all the time.
     var schedules: [Schedule] = [.workHours]
+    /// Where the weather is for, like "Burlington, VT". Empty = wherever the Mac's internet connection says.
+    var weatherPlace = ""
 
     /// The name to advertise and show in pairing.
     var displayName: String {
@@ -82,6 +84,7 @@ struct MacapadSettings: Codable, Equatable, Sendable {
         docsEnabled = try c.decodeIfPresent(Bool.self, forKey: .docsEnabled) ?? d.docsEnabled
         pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
         schedules = try c.decodeIfPresent([Schedule].self, forKey: .schedules) ?? d.schedules
+        weatherPlace = try c.decodeIfPresent(String.self, forKey: .weatherPlace) ?? d.weatherPlace
     }
 }
 

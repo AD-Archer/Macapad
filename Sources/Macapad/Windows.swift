@@ -414,6 +414,8 @@ struct SettingsView: View {
                     .disabled(!state.isBundled)
             }
 
+            WeatherSettings(state: state)
+
             Section {
                 Toggle("Allow connections", isOn: state.setting(\.lanAllowed))
                 Toggle("Let devices find this Mac", isOn: state.setting(\.lanDiscoverable))
@@ -600,6 +602,44 @@ struct SettingsView: View {
 }
 
 /// A paired device or named client in Settings: when it works, and pausing or removing it.
+/// Where the weather on dashboards is for. Saved on Return or when the field loses focus,
+/// so it doesn't look up every half-typed name.
+struct WeatherSettings: View {
+    @ObservedObject var state: AppState
+    @StateObject private var form = WeatherForm()
+    @FocusState private var focused: Bool
+
+    @MainActor final class WeatherForm: ObservableObject {
+        @Published var draft = ""
+        @Published var summary = ""
+    }
+
+    var body: some View {
+        Section {
+            TextField("Location", text: $form.draft, prompt: Text("Automatic"))
+                .focused($focused)
+                .onSubmit(save)
+                .onChange(of: focused) { _, now in if !now { save() } }
+            LabeledContent("Showing", value: form.summary)
+        } header: {
+            Text("Weather")
+        } footer: {
+            Text("For dashboards like the 3DS. Type a city or ZIP code, or leave it empty to use where your internet connection says you are (a VPN can move that).")
+        }
+        .onAppear { form.draft = state.settings.weatherPlace }
+        .task {
+            while !Task.isCancelled {
+                form.summary = await Weather.shared.summary()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func save() {
+        state.setting(\.weatherPlace).wrappedValue = form.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct CallerRow: View {
     @ObservedObject var state: AppState
     let name: String

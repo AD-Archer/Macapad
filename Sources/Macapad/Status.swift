@@ -13,6 +13,8 @@ struct MacStatus: Codable, ResponseEncodable {
     /// The app in front, e.g. "Safari".
     var frontApp: String?
     var nowPlaying: NowPlaying?
+    /// nil until the first fetch works (or with no internet).
+    var weather: WeatherNow?
     var stats: MacStats
     /// Same as `/api/me`: set while this token can't run anything.
     var off: OffStatus?
@@ -62,6 +64,7 @@ enum Status {
             mac: mac,
             frontApp: front,
             nowPlaying: await playing,
+            weather: await Weather.shared.current(),
             stats: await stats(),
             off: off
         )

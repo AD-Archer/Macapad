@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 APP="build/Macapad.app"
-VERSION="${VERSION:-0.3.0}"
+VERSION="${VERSION:-0.4.0}"
 # Sign with the "Macapad Dev" identity (scripts/make-signing-cert.sh) so macOS keeps the
 # Accessibility permission across rebuilds; ad-hoc otherwise. Override with SIGN_IDENTITY=...
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
@@ -23,6 +23,20 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Macapad "$APP/Contents/MacOS/Macapad"
 cp Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png Resources/docs.html "$APP/Contents/Resources/"
+
+# System-wide Now Playing (Vendor/mediaremote-adapter/VENDORED.md): a framework /usr/bin/perl loads, plus its script.
+# Optional: without CMake the app still builds and falls back to asking Spotify and Music.
+ADAPTER="$APP/Contents/Resources/MediaRemoteAdapter"
+if command -v cmake >/dev/null; then
+  cmake -S Vendor/mediaremote-adapter -B build/mediaremote-adapter -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake --build build/mediaremote-adapter --target MediaRemoteAdapter >/dev/null
+  mkdir -p "$ADAPTER"
+  cp -R build/mediaremote-adapter/MediaRemoteAdapter.framework "$ADAPTER/"
+  cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$ADAPTER/"
+  codesign --force --sign "$SIGN_IDENTITY" "$ADAPTER/MediaRemoteAdapter.framework"
+else
+  echo "note: cmake not found (brew install cmake); now playing will only see Spotify and Music"
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,6 +63,8 @@ echo "Built $APP (signed with: $SIGN_IDENTITY)"
 
 if [[ "${1:-}" == "--install" ]]; then
   pkill -x Macapad 2>/dev/null || true
+  # `open` fails (-600) if the old copy hasn't finished quitting
+  for _ in {1..25}; do pgrep -x Macapad >/dev/null || break; sleep 0.2; done
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/Macapad.app"
   cp -R "$APP" "$HOME/Applications/"

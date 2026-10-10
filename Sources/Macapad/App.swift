@@ -263,6 +263,10 @@ final class AppState: ObservableObject {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor let state = AppState()
 
+    func applicationWillTerminate(_ notification: Notification) {
+        SystemNowPlaying.shared.stop()
+    }
+
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar only; no Dock icon (also set via LSUIElement in the bundle).

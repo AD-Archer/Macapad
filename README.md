@@ -46,7 +46,8 @@ time it changes. In System Settings > Privacy & Security > Accessibility, remove
 
 ## Build it yourself
 
-You need Xcode or the Command Line Tools (`xcode-select --install`). Tasks run through
+You need Xcode or the Command Line Tools (`xcode-select --install`), and CMake (`brew install cmake`) for the
+Now Playing adapter; without it the app still builds, but only sees Spotify and Music. Tasks run through
 [just](https://github.com/casey/just) (`brew install just`); `just` lists them.
 Each one calls a script in `scripts/`, which you can also run directly.
 
@@ -210,6 +211,8 @@ Keys map to physical positions on a US keyboard layout.
 | GET | `/api/apps` | none | `{"apps":[{"name","bundleId","path"}]}` |
 | GET | `/api/apps/icon?bundleId=…&size=128` | none | the app's icon as a PNG (16–512 px) |
 | GET | `/api/shortcuts` | none | `{"shortcuts":["name", …]}` from the Shortcuts app |
+| GET | `/api/status` | none | what the Mac is doing now; see [Status](#status) |
+| GET | `/api/status/artwork?size=256` | none | the playing track's artwork as a PNG (16–512 px); `404` when there is none |
 
 `/api/run` waits until all steps finish. Errors in the request itself (bad JSON, unknown step type)
 return a 4xx status with `{"error":{"message":"..."}}`.
@@ -221,6 +224,32 @@ curl -X POST http://localhost:7317/api/run \
   -H "Content-Type: application/json" \
   -d '{"steps":[{"type":"media","key":"playPause"}]}'
 ```
+
+### Status
+
+`GET /api/status` is for frontends with a screen to fill. It's cheap enough to poll every couple of seconds.
+
+```json
+{ "time": "2026-10-10T20:31:36Z", "utcOffset": -14400,
+  "mac": { "id": "…", "name": "arch’s MacBook Air" }, "frontApp": "Safari",
+  "nowPlaying": { "app": "Spotify", "bundleId": "com.spotify.client", "playing": true, "title": "…", "artist": "…", "album": "…",
+                  "duration": 215000, "position": 81000, "artworkId": "9f2c01aa" },
+  "stats": { "cpu": 31, "memoryUsed": 12865634304, "memoryTotal": 17179869184,
+             "battery": 31, "charging": false, "pluggedIn": false,
+             "diskFree": 32191135862, "diskTotal": 245107195904, "uptime": 151635, "thermal": "nominal" } }
+```
+
+- `time` and `utcOffset` are the Mac's clock, for devices whose own clock is wrong.
+- `nowPlaying` is missing when nothing is playing or paused. It's what Control Center shows, from any app (Spotify,
+  Music, a browser tab, a podcast app…), read through the bundled
+  [mediaremote-adapter](Vendor/mediaremote-adapter/VENDORED.md): macOS only lets Apple-signed programs read it, so
+  Macapad has `/usr/bin/perl` load a small framework that streams it back. If that stops working (a macOS update
+  can close the gap), Macapad falls back to asking **Spotify and Music** over AppleScript; the first time, macOS asks
+  whether Macapad may control each app. `app` is the player's name and `bundleId` its bundle id. Times are in
+  milliseconds.
+- `artworkId` changes with the track; fetch `/api/status/artwork` again when it does. Missing = no artwork.
+- `cpu` is percent of all cores since the previous call. Sizes are bytes. `battery`, `charging` and `pluggedIn` are
+  missing on Macs without a battery. `off` is the same object as in [`/api/me`](#paused-and-off-hours).
 
 ### Paused and off hours
 

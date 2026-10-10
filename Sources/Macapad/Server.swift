@@ -247,6 +247,23 @@ final class Server: Sendable {
 
         router.get("/api/shortcuts") { _, _ in ShortcutList(shortcuts: await Apps.shortcuts()) }
 
+        router.get("/api/status") { _, context -> MacStatus in
+            let settings = SettingsStore.shared.current
+            return await Status.current(mac: Self.macInfo(settings), off: Availability.check(context.caller, settings: settings))
+        }
+
+        router.get("/api/status/artwork") { request, _ -> Response in
+            let size = min(512, max(16, request.uri.queryParameters.get("size").flatMap { Int($0) } ?? 256))
+            guard let png = await NowPlayingReader.shared.artworkPNG(size: size) else {
+                throw HTTPError(.notFound, message: "Nothing playing, or the track has no artwork")
+            }
+            return Response(
+                status: .ok,
+                headers: [.contentType: "image/png", .cacheControl: "no-store"],
+                body: .init(byteBuffer: ByteBuffer(bytes: png))
+            )
+        }
+
         router.get("/") { _, _ -> Response in
             guard SettingsStore.shared.current.docsEnabled else {
                 throw HTTPError(.notFound, message: "The docs page is off. Turn it on in Macapad's Settings.")

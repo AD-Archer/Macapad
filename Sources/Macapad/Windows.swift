@@ -1,12 +1,14 @@
 import AppKit
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-/// The Settings window and the pairing prompt. Both are plain AppKit windows hosting
+/// The Settings window, the QR code and the pairing prompt. Both are plain AppKit windows hosting
 /// SwiftUI, because a menu-bar-only app has no Dock icon to bring SwiftUI scenes forward.
 @MainActor
 final class Windows {
     private var settings: NSWindow?
     private var pairing: NSPanel?
+    private var qr: NSWindow?
 
     func showSettings(_ state: AppState) {
         if settings == nil {
@@ -19,6 +21,23 @@ final class Windows {
         }
         NSApp.activate()
         settings?.makeKeyAndOrderFront(nil)
+    }
+
+    func showQR(_ state: AppState) {
+        if qr == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: QRPairView(state: state)))
+            window.title = "Pair with QR Code"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            // The code pairs without asking, so it must stop working once nobody's looking at it.
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+                MainActor.assumeIsolated { state.qrClosed() }
+            }
+            qr = window
+        }
+        NSApp.activate()
+        qr?.makeKeyAndOrderFront(nil)
     }
 
     /// Shows the prompt while requests are waiting; closes it when none are left.
@@ -104,6 +123,67 @@ struct PairPrompt: View {
     }
 }
 
+struct QRPairView: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if let link = state.qrLink, let image = Self.qrImage(link) {
+                Image(nsImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 220, height: 220)
+                    .padding(14)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                VStack(spacing: 4) {
+                    Text("Scan with a Macapad app")
+                        .font(.headline)
+                    Text("The device pairs with \(state.settings.displayName) right away. Each code works once, then a new one appears.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let name = state.qrPaired {
+                    Label("Paired “\(name)”", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                Button("Copy Pairing Link") { state.copy(link) }
+                Text("Anyone who can see this code can control your Mac. Close this window when you’re done.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text("No device can find this Mac")
+                    .font(.headline)
+                Text("Turn on “Let devices find this Mac” for your local network or Tailscale in Settings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Settings") { state.windows.showSettings(state) }
+            }
+        }
+        .padding(24)
+        .frame(width: 320)
+    }
+
+    /// Black-on-white QR code, one pixel per module (scaled up without smoothing).
+    static func qrImage(_ text: String) -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage,
+              let cgImage = CIContext().createCGImage(output, from: output.extent)
+        else { return nil }
+        return NSImage(cgImage: cgImage, size: output.extent.size)
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var state: AppState
 
@@ -149,6 +229,7 @@ struct SettingsView: View {
                     Text("No devices yet. Pair one from a Macapad frontend on your phone or tablet.")
                         .foregroundStyle(.secondary)
                 }
+                Button("Pair with QR Code…") { state.showQR() }
                 ForEach(state.devices) { device in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {

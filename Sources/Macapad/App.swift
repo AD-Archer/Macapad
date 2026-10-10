@@ -38,11 +38,16 @@ final class AppState: ObservableObject {
     @Published var settings = SettingsStore.shared.current
     @Published var devices = Devices.shared.all
     @Published var pending: [PairRequest] = []
+    /// The key in the QR code while its window is open.
+    @Published var qrKey: String?
+    /// The last device that scanned the QR code, while its window is open.
+    @Published var qrPaired: String?
 
     var token: String?
     let windows = Windows()
     private let bonjour = Bonjour()
     private var bonjourUpdate: Task<Void, Never>?
+    private var qrRefresh: Task<Void, Never>?
     let port = Int(ProcessInfo.processInfo.environment["MACAPAD_PORT"] ?? "") ?? 7317
 
     /// Login items only work from a real .app bundle, not `swift run`.
@@ -78,6 +83,68 @@ final class AppState: ObservableObject {
 
     func startDiscovery() {
         bonjour.apply(settings, port: port)
+    }
+
+    /// Shows the QR code with a fresh key.
+    func showQR() {
+        qrPaired = nil
+        issueQR()
+        windows.showQR(self)
+    }
+
+    /// New key in the QR code, replaced again before it expires.
+    func issueQR() {
+        let key = QRPairing.shared.issue()
+        qrKey = key
+        qrRefresh?.cancel()
+        qrRefresh = Task {
+            try? await Task.sleep(for: .seconds(QRPairing.lifetime - 5))
+            guard !Task.isCancelled, qrKey == key else { return }
+            issueQR()
+        }
+    }
+
+    /// The QR window closed: nobody can use its code any more.
+    func qrClosed() {
+        QRPairing.shared.revoke()
+        qrRefresh?.cancel()
+        qrKey = nil
+        qrPaired = nil
+    }
+
+    /// A device scanned the code; show who, and a new code for the next one.
+    func qrRedeemed(_ device: PairedDevice) {
+        guard qrKey != nil else { return }
+        qrPaired = device.name
+        issueQR()
+    }
+
+    /// What the QR code holds: `macapad://pair?v=1&id=…&name=…&key=…&url=…&url=…`.
+    /// The urls are every address a device could reach this Mac at, best first. Nil when
+    /// the Mac can't be found on any network, so a code would never work.
+    var qrLink: String? {
+        guard let qrKey else { return nil }
+        let interfaces = Network.localInterfaces()
+        var urls: [String] = []
+        if settings.discoverable(.lan) {
+            // Wi-Fi and Ethernet are en*; skip link-local 169.254 addresses.
+            urls += interfaces
+                .filter { $0.name.hasPrefix("en") && $0.address.isPrivate && $0.address.bytes.first != 169 }
+                .compactMap(\.address.v4String)
+        }
+        if settings.discoverable(.tailscale) {
+            urls += interfaces.filter(\.address.isTailscale).compactMap(\.address.v4String)
+        }
+        let unique = urls.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        guard !unique.isEmpty else { return nil }
+
+        // Encode everything but unreserved characters (and : / which are fine in a query and
+        // keep the code less dense), so any URL parser reads it back the same.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~:/")
+        let encode = { (s: String) in s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s }
+        let params = [("v", "1"), ("id", settings.id), ("name", settings.displayName), ("key", qrKey)]
+            + unique.map { ("url", "http://\($0):\(port)") }
+        return "macapad://pair?" + params.map { "\($0)=\(encode($1))" }.joined(separator: "&")
     }
 
     func pendingChanged(_ next: [PairRequest]) {
@@ -130,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsStore.shared.observe { next in Task { @MainActor in state.settingsChanged(next) } }
         Devices.shared.observe { next in Task { @MainActor in state.devices = next } }
         Pairing.shared.observe { next in Task { @MainActor in state.pendingChanged(next) } }
+        QRPairing.shared.observe { device in Task { @MainActor in state.qrRedeemed(device) } }
         state.startDiscovery()
         Task.detached {
             await MainActor.run {
@@ -171,12 +239,19 @@ struct MenuContent: View {
             }
         }
         Divider()
+        Button("Pair with QR Code…") { state.showQR() }
+        Divider()
         Button("Copy API URL (local network)") { state.copy(state.lanURL) }
         if let url = state.tailscaleURL {
             Button("Copy API URL (Tailscale)") { state.copy(url) }
         }
         if let token = state.token {
             Button("Copy API Token") { state.copy(token) }
+        }
+        Divider()
+        Toggle("Docs Page", isOn: state.setting(\.docsEnabled))
+        if state.settings.docsEnabled {
+            Button("Open Docs Page") { NSWorkspace.shared.open(URL(string: "http://localhost:\(state.port)/")!) }
         }
         Divider()
         Button("Settings…") { state.windows.showSettings(state) }

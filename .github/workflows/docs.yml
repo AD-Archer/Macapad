@@ -1,0 +1,47 @@
+name: Docs
+
+# Publishes Resources/docs.html to GitHub Pages as the public copy of the docs.
+# On HTTPS it can't reach Macs on plain http, so it shows how to open the live copy
+# from your own Mac instead. Only the page is published; nothing about any Mac is in it.
+# One-time setup: repo Settings → Pages → Source: GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths: [Resources/docs.html, .github/workflows/docs.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp Resources/docs.html _site/index.html
+          touch _site/.nojekyll
+
+      - name: Upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4

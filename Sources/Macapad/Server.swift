@@ -52,11 +52,20 @@ struct PairStarted: Codable, ResponseEncodable {
     var mac: MacInfo
 }
 
+struct QRPairStart: Decodable {
+    /// From the QR code's pairing link.
+    var key: String
+    var name: String
+    var app: String?
+}
+
 struct PairStatus: Codable, ResponseEncodable {
     /// pending, approved, denied or expired
     var status: String
     var token: String?
     var device: PairedDevice?
+    /// Only from QR pairing, which skips the step that tells the device about the Mac.
+    var mac: MacInfo?
 }
 
 struct Me: Codable, ResponseEncodable {
@@ -114,20 +123,29 @@ final class Server: Sendable {
                 throw HTTPError(.forbidden, message: "This Mac doesn't accept pairing requests from \(context.network.label)")
             }
             let body = try await request.decode(as: PairStart.self, context: context)
-            let name = body.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name.count <= 60 else {
-                throw HTTPError(.badRequest, message: "name is required (up to 60 characters)")
-            }
-            let app = body.app?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40)
+            let (name, app) = try Self.deviceLabel(name: body.name, app: body.app)
             do {
                 let pair = try Pairing.shared.create(
-                    name: name, app: app.flatMap { $0.isEmpty ? nil : String($0) },
-                    network: context.network, address: context.remoteAddress ?? ""
+                    name: name, app: app, network: context.network, address: context.remoteAddress ?? ""
                 )
                 return PairStarted(id: pair.id, code: pair.code, expiresIn: Int(Pairing.lifetime), mac: Self.macInfo(settings))
             } catch let error as PairError {
                 throw HTTPError(.tooManyRequests, message: error.localizedDescription)
             }
+        }
+
+        // Scanning the QR code the Mac shows pairs right away, with no prompt on the Mac.
+        router.post("/api/pair/qr") { request, context -> PairStatus in
+            let settings = SettingsStore.shared.current
+            guard settings.discoverable(context.network) else {
+                throw HTTPError(.forbidden, message: "This Mac doesn't accept pairing requests from \(context.network.label)")
+            }
+            let body = try await request.decode(as: QRPairStart.self, context: context)
+            let (name, app) = try Self.deviceLabel(name: body.name, app: body.app)
+            guard let (device, token) = QRPairing.shared.redeem(body.key, name: name, app: app, network: context.network) else {
+                throw HTTPError(.gone, message: "This QR code was already used or has expired. Show a new one on the Mac.")
+            }
+            return PairStatus(status: "approved", token: token, device: device.publicInfo, mac: Self.macInfo(settings))
         }
 
         // ?wait=<seconds> holds the request open (up to 30s) until you decide on the Mac.
@@ -210,6 +228,20 @@ final class Server: Sendable {
 
         router.get("/api/shortcuts") { _, _ in ShortcutList(shortcuts: await Apps.shortcuts()) }
 
+        router.get("/") { _, _ -> Response in
+            guard SettingsStore.shared.current.docsEnabled else {
+                throw HTTPError(.notFound, message: "The docs page is off. Turn it on from Macapad's menu bar.")
+            }
+            guard let html = Docs.html() else {
+                throw HTTPError(.notFound, message: "This build of Macapad has no docs page")
+            }
+            return Response(
+                status: .ok,
+                headers: [.contentType: "text/html; charset=utf-8", .cacheControl: "no-store"],
+                body: .init(byteBuffer: ByteBuffer(bytes: html))
+            )
+        }
+
         router.ws("/api/ws") { inbound, outbound, context in
             let suppliedToken = context.request.uri.queryParameters.get("token") ?? ""
             for try await message in inbound.messages(maxSize: 1 << 20) {
@@ -252,6 +284,16 @@ final class Server: Sendable {
         MacInfo(id: settings.id, name: settings.displayName)
     }
 
+    /// The trimmed device name and app a pairing request gives, or a 400.
+    static func deviceLabel(name: String, app: String?) throws -> (String, String?) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 60 else {
+            throw HTTPError(.badRequest, message: "name is required (up to 60 characters)")
+        }
+        let app = app.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40)) }
+        return (name, app.flatMap { $0.isEmpty ? nil : $0 })
+    }
+
     static func execute(_ steps: [Step]) async -> RunResult {
         do {
             try await Runner.run(steps)
@@ -272,6 +314,18 @@ final class Server: Sendable {
 private struct AnyEncodable: Encodable {
     let value: any Encodable
     func encode(to encoder: Encoder) throws { try value.encode(to: encoder) }
+}
+
+/// The docs page (Resources/docs.html), served at / when it's turned on in the menu bar.
+enum Docs {
+    /// Read on every request, so editing the page under `swift run` shows up on reload.
+    static func html() -> Data? {
+        let url = Bundle.main.url(forResource: "docs", withExtension: "html")
+            ?? URL(fileURLWithPath: #filePath)  // swift run: Sources/Macapad/Server.swift → repo root
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Resources/docs.html")
+        return try? Data(contentsOf: url)
+    }
 }
 
 /// Refuses requests from networks turned off in Settings, and records the network on the context.
@@ -295,7 +349,7 @@ struct AuthMiddleware: RouterMiddleware {
     func handle(_ request: Request, context: MacapadContext, next: (Request, MacapadContext) async throws -> Response) async throws -> Response {
         let path = request.uri.path
         let isPublic = path == "/api/health"
-            || (path == "/api/pair" && request.method == .post)
+            || ((path == "/api/pair" || path == "/api/pair/qr") && request.method == .post)
             || (path.hasPrefix("/api/pair/") && request.method == .get)
         guard path.hasPrefix("/api/"), !isPublic else {
             return try await next(request, context)

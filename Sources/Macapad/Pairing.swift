@@ -108,3 +108,49 @@ final class Pairing: @unchecked Sendable {
         observers.forEach { $0(pending) }
     }
 }
+
+/// The key inside the QR code the Mac shows. Whoever scans it pairs without a prompt
+/// (seeing the screen is the proof), so a key only exists while the QR window is open,
+/// works once, and expires after five minutes.
+final class QRPairing: @unchecked Sendable {
+    static let shared = QRPairing()
+    static let lifetime: TimeInterval = 300
+
+    private let lock = NSLock()
+    private var key: String?
+    private var expiresAt = Date.distantPast
+    private var observers: [@Sendable (PairedDevice) -> Void] = []
+
+    /// A fresh key; the previous one stops working.
+    func issue() -> String {
+        let key = Config.randomHex(bytes: 16)
+        lock.withLock {
+            self.key = key
+            expiresAt = Date().addingTimeInterval(Self.lifetime)
+        }
+        return key
+    }
+
+    func revoke() {
+        lock.withLock { key = nil }
+    }
+
+    /// Pairs a new device if `supplied` is the current key, using the key up.
+    func redeem(_ supplied: String, name: String, app: String?, network: NetworkKind) -> (PairedDevice, String)? {
+        let valid = lock.withLock { () -> Bool in
+            guard let key, Date() < expiresAt, Devices.constantTimeEquals(key, supplied) else { return false }
+            self.key = nil
+            return true
+        }
+        guard valid else { return nil }
+        let (device, token) = Devices.shared.add(name: name, app: app, network: network)
+        let observers = lock.withLock { self.observers }
+        observers.forEach { $0(device) }
+        return (device, token)
+    }
+
+    /// Called with each device that pairs by QR code.
+    func observe(_ observer: @escaping @Sendable (PairedDevice) -> Void) {
+        lock.withLock { observers.append(observer) }
+    }
+}

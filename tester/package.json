@@ -1,7 +1,7 @@
 {
   "name": "macapad-tester",
   "private": true,
-  "description": "A throwaway web app for testing Macapad discovery and pairing",
+  "description": "Serves Macapad's docs page with Bonjour and Tailscale discovery, for testing pairing",
   "type": "module",
   "scripts": {
     "start": "node server.mjs"

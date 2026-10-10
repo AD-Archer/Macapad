@@ -1,5 +1,5 @@
-// Macapad tester: serves the test page and finds Macs, because browsers can't do
-// Bonjour or read your tailnet. Everything else (pairing, pressing keys) happens in
+// Macapad tester: serves the docs page (Resources/docs.html, the same one Macapad serves
+// when "Docs Page" is on) and finds Macs, because browsers can't do Bonjour or read your tailnet. Everything else (pairing, pressing keys) happens in
 // the browser, talking straight to the Mac, like a real frontend would.
 //
 //   pnpm install && pnpm start      then open http://<this-computer>:7318 on your phone
@@ -88,7 +88,7 @@ async function discover() {
   return [...macs.values()];
 }
 
-const page = new URL("./public/index.html", import.meta.url);
+const page = new URL("../Resources/docs.html", import.meta.url);
 
 createServer(async (req, res) => {
   if (req.url === "/discover") {

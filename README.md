@@ -40,20 +40,23 @@ time it changes. In System Settings > Privacy & Security > Accessibility, remove
 
 ## Build it yourself
 
+Tasks run through [just](https://github.com/casey/just) (`brew install just`); `just` lists them.
+Each one calls a script in `scripts/`, which you can also run directly.
+
 ```sh
-./scripts/build-app.sh --install   # builds, copies to ~/Applications, launches
+just install   # builds, copies to ~/Applications, launches
 ```
 
 On first launch, grant **Accessibility** access (System Settings → Privacy & Security → Accessibility).
 Media keys, shortcuts and typing need it.
 
-Run `./scripts/make-signing-cert.sh` once before building. It adds a self-signed "Macapad Dev"
+Run `just cert` once before building. It adds a self-signed "Macapad Dev"
 certificate to your login keychain, and the build signs with it, so macOS keeps the Accessibility
 permission across rebuilds. Without it the app is signed ad-hoc and every rebuild counts as a new app.
 
-For development: `swift run`. The menu bar shows a fallback grid icon because the custom icons only load from the bundled app. Set `MACAPAD_PORT` to change the port (default `7317`).
+For development: `just dev` (runs `swift run`; `just dev 7399` for another port). The menu bar shows a fallback grid icon because the custom icons only load from the bundled app. Set `MACAPAD_PORT` to change the port (default `7317`).
 
-The menu bar icon has **Copy API URL**, **Copy API Token** and **Settings…** items.
+The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Token**, **Docs Page** and **Settings…** items.
 
 ## Settings
 
@@ -116,6 +119,21 @@ The same Mac found both ways has the same `mac.id`, so you can merge them.
 
 Requests expire after two minutes. A device can only have one request waiting at a time, and the Mac holds at most three.
 
+**Pairing by QR code.** For frontends with a camera. **Pair with QR Code…** in the menu bar (or in Settings)
+shows a code that pairs straight away, with no Allow prompt: seeing the screen is the proof. It holds a link:
+
+```
+macapad://pair?v=1&id=<mac id>&name=<mac name>&key=<one-time key>&url=http://192.168.1.20:7317&url=http://100.101.102.103:7317
+```
+
+There's one `url` per address the Mac can be reached at, best first (local network, then Tailscale), and only for
+networks where the Mac lets devices find it. Values are percent-encoded except `:` and `/`. Use the first `url` that
+answers `/api/health`, then `POST <url>/api/pair/qr` with `{"key":"…","name":"Kitchen iPad","app":"archersdesk"}`.
+You get `{"status":"approved","token":"…","device":{…},"mac":{…}}`. Keep the token; it's handed out once.
+
+Each key works once (a new code appears after every scan), expires after five minutes, and stops working as soon as
+the window closes. A used or expired key gets `410`. **Copy Pairing Link** copies the same link, for pasting.
+
 ## Steps
 
 Everything the Mac can do is a **step**, written as `{"type": ..., ...}`.
@@ -150,6 +168,7 @@ Keys map to physical positions on a US keyboard layout.
 |---|---|---|---|
 | GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.3.0","network":"lan","mac":{"id","name"},"pairing":true}`; `mac` and `pairing` only where the Mac is discoverable |
 | POST | `/api/pair` | `{"name","app"?}` (no token needed) | `{"id","code","expiresIn","mac"}`; see [pairing](#discovery-and-pairing) |
+| POST | `/api/pair/qr` | `{"key","name","app"?}` (no token needed) | `{"status":"approved","token","device","mac"}`; see [pairing by QR code](#discovery-and-pairing) |
 | GET | `/api/pair/:id?wait=25` | none (no token needed) | `{"status":"pending"\|"approved"\|"denied"\|"expired","token"?,"device"?}` |
 | GET | `/api/me` | none | `{"owner":false,"device":{…},"mac":{…}}`: who your token belongs to |
 | DELETE | `/api/me` | none | `{"ok":true}`: unpairs this device (owner token can't) |
@@ -223,17 +242,31 @@ ws.onopen = () => {
 };
 ```
 
-## Tester
+## Docs page
 
-`tester/` is a throwaway web app for trying discovery and pairing from a phone. Its Node server finds Macs
-(Bonjour + your tailnet); the page then pairs and presses media keys by talking straight to the Mac.
+`Resources/docs.html` is these docs as a web page that also works as a frontend: pair from it (by code, by scanning
+the QR code, or by pasting a pairing link), and every example has a **Try** button that runs on your Mac.
 
-```sh
-cd tester && pnpm install && pnpm start   # then open http://<this-computer>:7318 on your phone
-```
+- **From the Mac:** tick **Docs Page** in the menu bar. Macapad then serves it at `/`, e.g. `http://<lan-ip>:7317/`
+  (**Open Docs Page** opens it). Off by default. It only knows about the Mac that served it.
+- **From the tester:** `tester/` serves the same page plus `/discover`, which finds Macs over Bonjour and your
+  tailnet (browsers can't do either). Run it on the Mac and open it from your phone:
 
-Run it on the Mac and open it from your phone to see the LAN and Tailscale settings take effect. Opened on the
-Mac itself, every request counts as "this Mac", which is always allowed.
+  ```sh
+  just tester   # then open http://<this-computer>:7318 on your phone
+  ```
+
+  Opened on the Mac itself, every request counts as "this Mac", which is always allowed.
+
+- **Public copy:** `.github/workflows/docs.yml` publishes the same page to GitHub Pages on every push to `main` that
+  touches it (one-time setup: repo Settings → Pages → Source: **GitHub Actions**). Browsers block HTTPS pages from
+  calling `http://` addresses, so that copy reads as plain docs and tells people to open the live one from their Mac.
+  Only a Mac's `tailscale serve` HTTPS address works from it. The page holds no addresses of its own; the IPs in it
+  are examples.
+
+Scanning a QR code needs the camera, which browsers only allow on HTTPS or localhost (e.g. through `tailscale serve`).
+On plain `http://`, paste the link from **Copy Pairing Link** instead. Under `swift run` the page is read from the
+source tree on every request, so edits show up on reload.
 
 ## Releasing
 
@@ -258,6 +291,6 @@ The artwork lives in `assets/`. `icon-source.png` becomes the app icon, and `men
 after changing them:
 
 ```sh
-python3 scripts/make-icons.py   # needs Pillow: pip install pillow
-./scripts/build-app.sh --install
+just icons     # needs Pillow: pip install pillow
+just install
 ```

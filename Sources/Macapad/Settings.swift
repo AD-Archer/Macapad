@@ -33,6 +33,8 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var tailscaleAllowed = true
     var tailscaleDiscoverable = true
     var internetAllowed = false
+    /// Serve the docs page at / (toggled from the menu bar).
+    var docsEnabled = false
 
     /// The name to advertise and show in pairing.
     var displayName: String {
@@ -73,6 +75,7 @@ struct MacapadSettings: Codable, Equatable, Sendable {
         tailscaleAllowed = try c.decodeIfPresent(Bool.self, forKey: .tailscaleAllowed) ?? d.tailscaleAllowed
         tailscaleDiscoverable = try c.decodeIfPresent(Bool.self, forKey: .tailscaleDiscoverable) ?? d.tailscaleDiscoverable
         internetAllowed = try c.decodeIfPresent(Bool.self, forKey: .internetAllowed) ?? d.internetAllowed
+        docsEnabled = try c.decodeIfPresent(Bool.self, forKey: .docsEnabled) ?? d.docsEnabled
     }
 }
 

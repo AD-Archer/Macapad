@@ -55,6 +55,9 @@ enum Network {
 
         var isV4: Bool { bytes.count == 4 }
 
+        /// "192.168.1.20"; nil for IPv6.
+        var v4String: String? { isV4 ? bytes.map(String.init).joined(separator: ".") : nil }
+
         var isLoopback: Bool {
             isV4 ? bytes[0] == 127 : bytes == [UInt8](repeating: 0, count: 15) + [1]
         }

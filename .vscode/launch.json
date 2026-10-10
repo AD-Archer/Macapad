@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:stremadeck}",
+            "name": "Debug Macapad",
+            "target": "Macapad",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Macapad"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:stremadeck}",
+            "name": "Release Macapad",
+            "target": "Macapad",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Macapad"
+        }
+    ]
+}

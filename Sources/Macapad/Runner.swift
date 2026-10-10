@@ -7,18 +7,34 @@ struct StepError: LocalizedError {
 
 /// Executes a button's steps in order, stopping at the first failure.
 enum Runner {
-    static func run(_ steps: [Step]) async throws {
+    /// Actions can run other actions; this caps the nesting so a loop can't hang the app.
+    private static let maxActionDepth = 4
+
+    static func run(_ steps: [Step], depth: Int = 0) async throws {
         for (index, step) in steps.enumerated() {
             do {
-                try await run(step)
-            } catch {
+                try await run(step, depth: depth)
+            } catch where depth == 0 {
+                // only the outermost list numbers its steps; nested actions pass errors up as-is
                 throw StepError(message: "Step \(index + 1): \(error.localizedDescription)")
             }
         }
     }
 
-    static func run(_ step: Step) async throws {
+    static func run(_ step: Step, depth: Int = 0) async throws {
         switch step {
+        case .action(let id):
+            guard let action = Actions.shared.find(id) else {
+                throw StepError(message: "No action with id '\(id)'")
+            }
+            guard depth < maxActionDepth else {
+                throw StepError(message: "Action '\(id)' nests too deeply (does it run itself?)")
+            }
+            do {
+                try await run(action.steps, depth: depth + 1)
+            } catch where depth == 0 {
+                throw StepError(message: "\(action.name): \(error.localizedDescription)")
+            }
         case .media(let key):
             await MainActor.run { Input.press(key) }
         case .keystroke(let combo):

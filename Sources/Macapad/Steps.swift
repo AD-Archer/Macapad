@@ -14,11 +14,13 @@ enum Step: Sendable {
     case shortcut(String)
     case appleScript(String)
     case wait(Int)
+    /// Runs a built-in or custom action by id (see Actions.swift).
+    case action(String)
 }
 
 extension Step: Codable {
     private enum CodingKeys: String, CodingKey {
-        case type, key, keys, text, url, app, name, source, ms
+        case type, key, keys, text, url, app, name, source, ms, id
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +35,7 @@ extension Step: Codable {
         case "shortcut": self = .shortcut(try c.decode(String.self, forKey: .name))
         case "appleScript": self = .appleScript(try c.decode(String.self, forKey: .source))
         case "wait": self = .wait(try c.decode(Int.self, forKey: .ms))
+        case "action": self = .action(try c.decode(String.self, forKey: .id))
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown step type '\(type)'")
         }
@@ -49,6 +52,7 @@ extension Step: Codable {
         case .shortcut(let name): try c.encode("shortcut", forKey: .type); try c.encode(name, forKey: .name)
         case .appleScript(let source): try c.encode("appleScript", forKey: .type); try c.encode(source, forKey: .source)
         case .wait(let ms): try c.encode("wait", forKey: .type); try c.encode(ms, forKey: .ms)
+        case .action(let id): try c.encode("action", forKey: .type); try c.encode(id, forKey: .id)
         }
     }
 }

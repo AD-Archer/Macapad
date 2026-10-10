@@ -58,6 +58,7 @@ Each request runs a list of steps in order and stops at the first failure.
 | `shortcut` | `name`: as shown in the Shortcuts app | `{"type":"shortcut","name":"Focus Mode"}` |
 | `appleScript` | `source` | `{"type":"appleScript","source":"beep"}` |
 | `wait` | `ms` (max 60000) | `{"type":"wait","ms":500}` |
+| `action` | `id` of a built-in or custom action | `{"type":"action","id":"reload"}` |
 
 The `media` steps send real media-key presses, so they control whatever app is playing,
 just like the keys on your keyboard.
@@ -76,6 +77,12 @@ Keys map to physical positions on a US keyboard layout.
 |---|---|---|---|
 | GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.1.0"}` |
 | POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}` |
+| GET | `/api/actions` | none | `{"actions":[...]}`: built-ins, then yours |
+| POST | `/api/actions` | an action | the saved action (adds, or replaces the same `id`) |
+| DELETE | `/api/actions/:id` | none | `{"ok":true}`; built-ins can't be deleted |
+| GET | `/api/apps` | none | `{"apps":[{"name","bundleId","path"}]}` |
+| GET | `/api/apps/icon?bundleId=…&size=128` | none | the app's icon as a PNG (16–512 px) |
+| GET | `/api/shortcuts` | none | `{"shortcuts":["name", …]}` from the Shortcuts app |
 
 `/api/run` waits until all steps finish. Errors in the request itself (bad JSON, unknown step type)
 return a 4xx status with `{"error":{"message":"..."}}`.
@@ -86,6 +93,31 @@ curl -X POST http://localhost:7317/api/run \
   -H "Content-Type: application/json" \
   -d '{"steps":[{"type":"media","key":"playPause"}]}'
 ```
+
+## Actions
+
+An action is a named list of steps that any request can run with `{"type":"action","id":"…"}`.
+
+```json
+{ "id": "reload", "name": "Reload", "icon": "refresh", "category": "browser",
+  "steps": [{ "type": "keystroke", "keys": "cmd+r" }], "custom": false }
+```
+
+`icon` is a [Material Symbols](https://fonts.google.com/icons) name, a hint for frontends.
+
+**Built-ins:**
+
+| category | ids |
+|---|---|
+| media | `play-pause` `next-track` `previous-track` `volume-up` `volume-down` `mute` |
+| system | `emoji` `spotlight` `screenshot-ui` `screenshot-area` `screenshot-screen` `mission-control` `app-windows` `lock-screen` |
+| windows | `minimize` `fullscreen` `close-window` `next-window` `hide-app` `quit-app` |
+| browser | `reload` `hard-reload` `new-tab` `close-tab` `reopen-tab` `next-tab` `previous-tab` `address-bar` |
+| editing | `copy` `paste` `cut` `undo` `redo` `select-all` `find` `save` |
+
+**Your own:** `POST /api/actions` saves one in `~/.macapad/actions.json`. Leave `id` empty and one is
+made from the name. Ids are lowercase letters, numbers and dashes, and can't reuse a built-in id.
+Actions can run other actions, nested up to 4 deep.
 
 ## WebSocket: `/api/ws?token=...`
 

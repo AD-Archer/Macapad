@@ -9,7 +9,7 @@ typealias Context = BasicWebSocketRequestContext
 struct Health: Codable, ResponseEncodable {
     var ok = true
     var name = "macapad"
-    var version = "0.1.0"
+    var version = "0.2.0"
 }
 
 struct RunRequest: Decodable {
@@ -43,7 +43,7 @@ final class Server: Sendable {
         router.add(middleware: CORSMiddleware(
             allowOrigin: .originBased,
             allowHeaders: [.accept, .authorization, .contentType, .origin],
-            allowMethods: [.get, .post, .options]
+            allowMethods: [.get, .post, .delete, .options]
         ))
         router.add(middleware: TokenMiddleware(token: token))
 
@@ -53,6 +53,44 @@ final class Server: Sendable {
             let body = try await request.decode(as: RunRequest.self, context: context)
             return await Self.execute(body.steps)
         }
+
+        router.get("/api/actions") { _, _ in ActionList(actions: Actions.shared.all) }
+
+        router.post("/api/actions") { request, context -> MacAction in
+            let action = try await request.decode(as: MacAction.self, context: context)
+            do {
+                return try Actions.shared.save(action)
+            } catch let error as ActionError {
+                throw HTTPError(.badRequest, message: error.localizedDescription)
+            }
+        }
+
+        router.delete("/api/actions/:id") { _, context -> RunResult in
+            let id = try context.parameters.require("id")
+            guard try Actions.shared.delete(id) else {
+                throw HTTPError(.notFound, message: "No custom action with id '\(id)'")
+            }
+            return RunResult(ok: true)
+        }
+
+        router.get("/api/apps") { _, _ in AppList(apps: Apps.list()) }
+
+        router.get("/api/apps/icon") { request, _ -> Response in
+            guard let bundleId = request.uri.queryParameters.get("bundleId") else {
+                throw HTTPError(.badRequest, message: "bundleId is required")
+            }
+            let size = min(512, max(16, request.uri.queryParameters.get("size").flatMap { Int($0) } ?? 128))
+            guard let png = await Apps.iconPNG(bundleId: bundleId, size: size) else {
+                throw HTTPError(.notFound, message: "No app with bundle id '\(bundleId)'")
+            }
+            return Response(
+                status: .ok,
+                headers: [.contentType: "image/png", .cacheControl: "max-age=86400"],
+                body: .init(byteBuffer: ByteBuffer(bytes: png))
+            )
+        }
+
+        router.get("/api/shortcuts") { _, _ in ShortcutList(shortcuts: await Apps.shortcuts()) }
 
         router.ws("/api/ws") { inbound, outbound, _ in
             for try await message in inbound.messages(maxSize: 1 << 20) {

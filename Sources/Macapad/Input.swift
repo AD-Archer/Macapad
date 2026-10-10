@@ -75,6 +75,10 @@ enum Input {
             }
         }
         guard let keyCode else { throw InputError.noKey(combo) }
+        // A real keyboard flags these keys too, and some system shortcuts
+        // (ctrl+up for Mission Control, …) only fire when the flags are there.
+        if arrowKeys.contains(keyCode) { flags.formUnion([.maskNumericPad, .maskSecondaryFn]) }
+        if functionKeys.contains(keyCode) { flags.insert(.maskSecondaryFn) }
         let source = CGEventSource(stateID: .hidSystemState)
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
@@ -109,6 +113,17 @@ enum Input {
         "ctrl": .maskControl, "control": .maskControl, "⌃": .maskControl,
         "fn": .maskSecondaryFn,
     ]
+
+    private static let arrowKeys: Set<CGKeyCode> = Set(
+        [kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow].map { CGKeyCode($0) }
+    )
+
+    private static let functionKeys: Set<CGKeyCode> = Set(
+        [kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown, kVK_ForwardDelete,
+         kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+         kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
+            .map { CGKeyCode($0) }
+    )
 
     /// Physical key positions (ANSI layout).
     private static let keyCodes: [String: CGKeyCode] = {

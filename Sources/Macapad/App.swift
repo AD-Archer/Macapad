@@ -36,7 +36,7 @@ final class AppState: ObservableObject {
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var tailscaleHost: String?
 
-    var store: Store?
+    var token: String?
     let port = Int(ProcessInfo.processInfo.environment["MACAPAD_PORT"] ?? "") ?? 7317
 
     /// Login items only work from a real .app bundle, not `swift run`.
@@ -73,16 +73,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !Input.hasPermission { Input.requestPermission() }
 
-        let store: Store
+        let token: String
         do {
-            store = try Store()
+            token = try Config.loadOrCreateToken()
         } catch {
             state.status = "Config error: \(error.localizedDescription)"
             return
         }
-        state.store = store
+        state.token = token
 
-        let server = Server(store: store, port: state.port)
+        let server = Server(token: token, port: state.port)
         let state = self.state
         Task.detached {
             await MainActor.run {
@@ -125,13 +125,13 @@ struct MenuContent: View {
         if let url = state.tailscaleURL {
             Button("Copy API URL (Tailscale)") { copy(url) }
         }
-        if let token = state.store?.token {
+        if let token = state.token {
             Button("Copy API Token") { copy(token) }
         }
         Divider()
         Toggle("Open at Login", isOn: Binding(get: { state.openAtLogin }, set: { state.setOpenAtLogin($0) }))
             .disabled(!state.isBundled)
-        Button("Open Config Folder") { NSWorkspace.shared.open(Store.directory) }
+        Button("Open Config Folder") { NSWorkspace.shared.open(Config.directory) }
         Divider()
         Button("Quit Macapad") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

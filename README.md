@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="assets/icon-source.png" alt="Macapad's yellow smiling face" width="220">
+</p>
+
 # Macapad
 
 A menu bar app that lets any frontend control your Mac over HTTP and WebSocket:
 media keys, keyboard shortcuts, opening URLs and apps, running Shortcuts and AppleScript.
-It also stores a deck of buttons that frontends can share.
+Macapad has no interface of its own. You build the frontend; Macapad runs whatever steps it sends.
 
 ## Run it
 
@@ -38,7 +42,7 @@ The token lives in `~/.macapad/token`. Delete that file and relaunch to get a ne
 ## Steps
 
 Everything the Mac can do is a **step**, written as `{"type": ..., ...}`.
-A button or a request runs a list of steps in order and stops at the first failure.
+Each request runs a list of steps in order and stops at the first failure.
 
 | type | fields | example |
 |---|---|---|
@@ -68,9 +72,6 @@ Keys map to physical positions on a US keyboard layout.
 |---|---|---|---|
 | GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.1.0"}` |
 | POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}` |
-| GET | `/api/deck` | none | the deck |
-| PUT | `/api/deck` | the whole deck | the saved deck, or `400` with the problem |
-| POST | `/api/buttons/:id/press` | none | same as `/api/run` |
 
 `/api/run` waits until all steps finish. Errors in the request itself (bad JSON, unknown step type)
 return a 4xx status with `{"error":{"message":"..."}}`.
@@ -84,18 +85,15 @@ curl -X POST http://localhost:7317/api/run \
 
 ## WebSocket: `/api/ws?token=...`
 
-Use this for a frontend that stays open. Presses are faster than HTTP, and deck changes arrive live.
+Use this for a frontend that stays open. It's faster than a new HTTP request for every press.
 
 **The server sends:**
 
-- `{"type":"deck","deck":{...}}`: when you connect, and whenever the deck changes
-  (from any client or a hand edit of `deck.json`).
-- `{"type":"result","ref":"...","ok":true,"error":""}`: after each `press` or `run`.
+- `{"type":"result","ref":"...","ok":true,"error":""}`: after each `run`, with the `ref` you sent.
 - `{"type":"pong"}`: in reply to `ping`.
 
 **You send:**
 
-- `{"type":"press","id":"<button id>"}`: the result's `ref` is the button id.
 - `{"type":"run","ref":"<anything>","steps":[...]}`
 - `{"type":"ping"}`: send one every ~25s to keep proxies from closing the connection.
 
@@ -103,40 +101,12 @@ Use this for a frontend that stays open. Presses are faster than HTTP, and deck 
 const ws = new WebSocket(`${base.replace(/^http/, "ws")}/api/ws?token=${token}`);
 ws.onmessage = (e) => {
   const msg = JSON.parse(e.data);
-  if (msg.type === "deck") render(msg.deck);
   if (msg.type === "result" && !msg.ok) alert(msg.error);
 };
-ws.send(JSON.stringify({ type: "run", ref: "skip", steps: [{ type: "media", key: "next" }] }));
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: "run", ref: "skip", steps: [{ type: "media", key: "next" }] }));
+};
 ```
-
-## The deck
-
-The deck is optional shared storage, so every frontend shows the same buttons.
-You can ignore it and only use `/api/run`.
-
-It's stored in `~/.macapad/deck.json`. Edit it by hand and connected clients update within moments.
-
-```json
-{
-  "version": 1,
-  "pages": [
-    {
-      "id": "main", "name": "Main", "columns": 4,
-      "buttons": [
-        { "id": "playpause", "label": "Play / Pause", "icon": "⏯", "color": "#1db954",
-          "steps": [{ "type": "media", "key": "playPause" }] },
-        { "id": "sites", "label": "Sites", "icon": "🌐", "steps": [], "page": "sites" }
-      ]
-    },
-    { "id": "sites", "name": "Sites", "folder": true, "buttons": [] }
-  ]
-}
-```
-
-- `columns`, `icon` and `color` are hints for frontends. The Mac ignores them.
-- A button with `page` opens that page (a folder) instead of running steps.
-- Pages with `"folder": true` are only reachable from such a button.
-- The server rejects a deck with duplicate ids, links to missing pages, or no non-folder page.
 
 ## Icons
 

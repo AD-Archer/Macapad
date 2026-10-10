@@ -6,27 +6,6 @@ import NIOCore
 
 typealias Context = BasicWebSocketRequestContext
 
-/// Live connections from pads, so deck changes reach every screen at once.
-actor Hub {
-    private var clients: [UUID: WebSocketOutboundWriter] = [:]
-
-    func add(_ writer: WebSocketOutboundWriter) -> UUID {
-        let id = UUID()
-        clients[id] = writer
-        return id
-    }
-
-    func remove(_ id: UUID) { clients[id] = nil }
-
-    func broadcast(_ text: String) async {
-        for writer in clients.values {
-            try? await writer.write(.text(text))
-        }
-    }
-
-    var count: Int { clients.count }
-}
-
 struct Health: Codable, ResponseEncodable {
     var ok = true
     var name = "macapad"
@@ -42,90 +21,59 @@ struct RunResult: Codable, ResponseEncodable {
     var error: String?
 }
 
-/// Messages a pad can send over the WebSocket.
+/// Messages a client can send over the WebSocket.
 private struct ClientMessage: Decodable {
     var type: String
-    var id: String?
-    var steps: [Step]?
     var ref: String?
+    var steps: [Step]?
 }
 
 final class Server: Sendable {
-    let store: Store
-    let hub = Hub()
+    let token: String
     let port: Int
 
-    init(store: Store, port: Int) {
-        self.store = store
+    init(token: String, port: Int) {
+        self.token = token
         self.port = port
     }
 
     func run() async throws {
-        store.onChange = { [hub] deck in
-            Task { await hub.broadcast(Self.encode(["type": "deck", "deck": deck])) }
-        }
-
         let router = Router(context: Context.self)
         router.add(middleware: PrivateNetworkAccessMiddleware())
         router.add(middleware: CORSMiddleware(
             allowOrigin: .originBased,
             allowHeaders: [.accept, .authorization, .contentType, .origin],
-            allowMethods: [.get, .post, .put, .delete, .options]
+            allowMethods: [.get, .post, .options]
         ))
-        router.add(middleware: TokenMiddleware(token: store.token))
+        router.add(middleware: TokenMiddleware(token: token))
 
         router.get("/api/health") { _, _ in Health() }
-
-        router.get("/api/deck") { [store] _, _ in store.deck }
-
-        router.put("/api/deck") { [store] request, context -> Deck in
-            let deck = try await request.decode(as: Deck.self, context: context)
-            if let problem = deck.validationError() {
-                throw HTTPError(.badRequest, message: problem)
-            }
-            try store.save(deck)
-            return deck
-        }
 
         router.post("/api/run") { request, context -> RunResult in
             let body = try await request.decode(as: RunRequest.self, context: context)
             return await Self.execute(body.steps)
         }
 
-        router.post("/api/buttons/:id/press") { [store] _, context -> RunResult in
-            let id = try context.parameters.require("id")
-            guard let button = store.deck.button(id: id) else {
-                throw HTTPError(.notFound, message: "No button with id '\(id)'")
-            }
-            return await Self.execute(button.steps)
-        }
-
-        router.ws("/api/ws") { [store, hub] inbound, outbound, _ in
-            let clientID = await hub.add(outbound)
-            defer { Task { await hub.remove(clientID) } }
-            try await outbound.write(.text(Self.encode(["type": "deck", "deck": store.deck])))
-
+        router.ws("/api/ws") { inbound, outbound, _ in
             for try await message in inbound.messages(maxSize: 1 << 20) {
                 guard case .text(let text) = message,
                       let msg = try? JSONDecoder().decode(ClientMessage.self, from: Data(text.utf8))
                 else { continue }
 
-                let steps: [Step]?
                 switch msg.type {
-                case "press": steps = msg.id.flatMap { store.deck.button(id: $0)?.steps }
-                case "run": steps = msg.steps
                 case "ping":
                     try await outbound.write(.text(#"{"type":"pong"}"#))
+                case "run":
+                    // Run outside the read loop so a long sequence doesn't block the next one.
+                    let steps = msg.steps ?? []
+                    Task {
+                        let result = await Self.execute(steps)
+                        try? await outbound.write(.text(Self.encode([
+                            "type": "result", "ref": msg.ref ?? "", "ok": result.ok, "error": result.error ?? "",
+                        ])))
+                    }
+                default:
                     continue
-                default: continue
-                }
-                // Run outside the read loop so a long macro doesn't block other presses.
-                let ref = msg.ref ?? msg.id
-                Task {
-                    let result = if let steps { await Self.execute(steps) } else { RunResult(ok: false, error: "Unknown button") }
-                    try? await outbound.write(.text(Self.encode([
-                        "type": "result", "ref": ref ?? "", "ok": result.ok, "error": result.error ?? "",
-                    ])))
                 }
             }
         }

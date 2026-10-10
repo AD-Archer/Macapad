@@ -237,17 +237,14 @@ Mac itself, every request counts as "this Mac", which is always allowed.
 
 ## Releasing
 
-`.github/workflows/build.yml` builds the app on every push and pull request.
-To publish a release, push a version tag:
+`.github/workflows/build.yml` publishes a release on **every push to `main`**, numbered
+`v0.3.<run number>` (bump `VERSION_PREFIX` in the workflow for a new line). Pull requests only build.
+To release an exact version instead, push a tag: `git tag v1.0.0 && git push origin v1.0.0`.
 
-```sh
-git tag v0.3.1 && git push origin v0.3.1
-```
-
-The workflow then:
+Each release run:
 
 1. Builds `Macapad.app` with that version, unsigned (ad-hoc signature only).
-2. Zips it and attaches `Macapad.zip` to a GitHub release for the tag.
+2. Zips it and attaches `Macapad.zip` to a GitHub release, creating the tag on that commit.
 3. Sends a `macapad-release` event to [AD-Archer/homebrew-tap](https://github.com/AD-Archer/homebrew-tap),
    which updates the cask's version and checksum.
 

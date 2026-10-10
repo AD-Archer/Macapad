@@ -1,8 +1,9 @@
 name: Build
 
-# Every push and PR: build the app to make sure it compiles.
-# Pushing a tag like v0.3.0: also publish an unsigned Macapad.zip as a GitHub release
-# and tell AD-Archer/homebrew-tap to update its cask.
+# Every push to main publishes an unsigned Macapad.zip as a GitHub release numbered
+# v<VERSION_PREFIX>.<run number> (like RustySound), then tells AD-Archer/homebrew-tap
+# to update its cask. Pushing a tag like v1.0.0 releases that exact version instead.
+# Pull requests only build, to check the app compiles.
 
 on:
   push:
@@ -14,9 +15,14 @@ on:
 permissions:
   contents: write
 
+env:
+  # Bump this for a new minor/major line; the patch number is the run number.
+  VERSION_PREFIX: "0.3"
+
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a release halfway; only superseded PR builds.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -30,10 +36,13 @@ jobs:
         id: version
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF_NAME}"
           else
-            echo "version=0.0.0-dev+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            TAG="v${VERSION_PREFIX}.${{ github.run_number }}"
           fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${TAG}"
 
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -59,20 +68,23 @@ jobs:
           path: build/Macapad.zip
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" build/Macapad.zip --clobber
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" build/Macapad.zip --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" build/Macapad.zip --title "Macapad ${GITHUB_REF_NAME}" --generate-notes
+            # Creates the tag on this commit. Tags made with GITHUB_TOKEN don't start another run.
+            gh release create "${TAG}" build/Macapad.zip --target "${GITHUB_SHA}" --title "Macapad ${TAG}" --generate-notes
           fi
 
       - name: Update Homebrew tap
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         env:
           DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           if [[ -z "${DISPATCH_TOKEN}" ]]; then
             echo "CROSS_REPO_DISPATCH_TOKEN is not set; skipping the Homebrew tap update."
@@ -82,4 +94,4 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
             "https://api.github.com/repos/AD-Archer/homebrew-tap/dispatches" \
-            -d "{\"event_type\":\"macapad-release\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"
+            -d "{\"event_type\":\"macapad-release\",\"client_payload\":{\"version\":\"${TAG}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"

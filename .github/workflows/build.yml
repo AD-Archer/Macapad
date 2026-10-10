@@ -1,0 +1,85 @@
+name: Build
+
+# Every push and PR: build the app to make sure it compiles.
+# Pushing a tag like v0.3.0: also publish an unsigned Macapad.zip as a GitHub release
+# and tell AD-Archer/homebrew-tap to update its cask.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pick version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build Macapad.app (unsigned)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGN_IDENTITY: "-"
+        run: ./scripts/build-app.sh
+
+      - name: Zip the app
+        # ditto keeps the bundle's symlinks, permissions and ad-hoc signature intact.
+        run: ditto -c -k --keepParent build/Macapad.app build/Macapad.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Macapad-${{ steps.version.outputs.version }}
+          path: build/Macapad.zip
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" build/Macapad.zip --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" build/Macapad.zip --title "Macapad ${GITHUB_REF_NAME}" --generate-notes
+          fi
+
+      - name: Update Homebrew tap
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+        run: |
+          if [[ -z "${DISPATCH_TOKEN}" ]]; then
+            echo "CROSS_REPO_DISPATCH_TOKEN is not set; skipping the Homebrew tap update."
+            exit 0
+          fi
+          curl --fail-with-body -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            "https://api.github.com/repos/AD-Archer/homebrew-tap/dispatches" \
+            -d "{\"event_type\":\"macapad-release\",\"client_payload\":{\"version\":\"${GITHUB_REF_NAME}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"

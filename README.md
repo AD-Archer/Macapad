@@ -11,7 +11,34 @@ Macapad has no interface of its own. You build the frontend; Macapad runs whatev
 ## Warning
 This probably isn't safe to expose to the web, do not allow your mac to be controlled outisde of your lan unless you know what you're doing
 
-## Run it
+## Install
+
+Macapad needs an Apple Silicon Mac on macOS 14 or later.
+
+**With Homebrew:**
+
+```sh
+brew tap ad-archer/tap
+brew trust ad-archer/tap        # Homebrew 6+ only loads third-party taps you trust
+brew install --cask macapad
+xattr -dr com.apple.quarantine /Applications/Macapad.app
+```
+
+To trust only Macapad instead of the whole tap, use `brew trust --cask ad-archer/tap/macapad`.
+
+**Or by hand:** download `Macapad.zip` from [Releases](https://github.com/AD-Archer/Macapad/releases),
+unzip it, move `Macapad.app` to `/Applications`, then run the same `xattr` command.
+
+**Why the `xattr` command?** Macapad isn't signed with an Apple Developer ID. macOS flags everything
+downloaded from the internet as quarantined, and Gatekeeper refuses to open unsigned quarantined apps,
+often saying the app "is damaged". `xattr -dr com.apple.quarantine` removes that flag from the app and
+everything inside it (`-d` deletes the attribute, `-r` goes through the whole bundle).
+Run it again after each upgrade. Only do this for apps you trust.
+
+**After each upgrade, grant Accessibility again.** An unsigned app looks like a new app to macOS every
+time it changes. In System Settings > Privacy & Security > Accessibility, remove Macapad and add it again.
+
+## Build it yourself
 
 ```sh
 ./scripts/build-app.sh --install   # builds, copies to ~/Applications, launches
@@ -207,6 +234,25 @@ cd tester && pnpm install && pnpm start   # then open http://<this-computer>:731
 
 Run it on the Mac and open it from your phone to see the LAN and Tailscale settings take effect. Opened on the
 Mac itself, every request counts as "this Mac", which is always allowed.
+
+## Releasing
+
+`.github/workflows/build.yml` builds the app on every push and pull request.
+To publish a release, push a version tag:
+
+```sh
+git tag v0.3.1 && git push origin v0.3.1
+```
+
+The workflow then:
+
+1. Builds `Macapad.app` with that version, unsigned (ad-hoc signature only).
+2. Zips it and attaches `Macapad.zip` to a GitHub release for the tag.
+3. Sends a `macapad-release` event to [AD-Archer/homebrew-tap](https://github.com/AD-Archer/homebrew-tap),
+   which updates the cask's version and checksum.
+
+Step 3 needs a `CROSS_REPO_DISPATCH_TOKEN` repository secret: a token that can write to the tap repo
+(the same one RustySound uses). Without it, the release still publishes and the tap step is skipped.
 
 ## Icons
 

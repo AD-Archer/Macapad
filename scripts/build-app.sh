@@ -1,10 +1,11 @@
 #!/bin/bash
 # Builds Macapad.app into ./build. Pass --install to copy it to ~/Applications and launch it.
+# VERSION=1.2.3 sets the version in Info.plist; SIGN_IDENTITY=- forces ad-hoc signing (CI).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 APP="build/Macapad.app"
-VERSION="0.3.0"
+VERSION="${VERSION:-0.3.0}"
 # Sign with the "Macapad Dev" identity (scripts/make-signing-cert.sh) so macOS keeps the
 # Accessibility permission across rebuilds; ad-hoc otherwise. Override with SIGN_IDENTITY=...
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then

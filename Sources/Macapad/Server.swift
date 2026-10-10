@@ -25,7 +25,8 @@ struct MacapadContext: RequestContext, WebSocketRequestContext {
 struct Health: Codable, ResponseEncodable {
     var ok = true
     var name = "macapad"
-    var version = "0.3.0"
+    /// From Info.plist (set by build-app.sh); "dev" under `swift run`.
+    var version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     /// Which network this Mac thinks you're on: thisMac, lan, tailscale or internet.
     var network: NetworkKind?
     /// Only on networks where the Mac is discoverable.

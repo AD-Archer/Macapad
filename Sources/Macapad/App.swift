@@ -35,6 +35,8 @@ final class AppState: ObservableObject {
     @Published var hasAccessibility = Input.hasPermission
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var tailscaleHost: String?
+    /// Tailnet computers' names by address, so Settings can say a client calls from "server".
+    @Published var tailscalePeers: [String: String] = [:]
     @Published var settings = SettingsStore.shared.current
     @Published var devices = Devices.shared.all
     /// Screens, scripts and apps that named themselves with `X-Macapad-Client`.
@@ -105,6 +107,17 @@ final class AppState: ObservableObject {
 
     func setSchedule(_ client: Client, _ scheduleId: String?) {
         Clients.shared.update(client.id) { $0.scheduleId = scheduleId }
+    }
+
+    /// Looks up the tailnet's computer names again (when Settings opens).
+    func refreshTailscale() {
+        Task.detached {
+            let status = await Tailscale.status()
+            await MainActor.run {
+                self.tailscaleHost = status.dnsName
+                self.tailscalePeers = status.peers
+            }
+        }
     }
 
     /// Named clients calling with a paired device's token, or with the owner token (nil).
@@ -289,10 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run { state.running = false }
         }
 
-        Task.detached {
-            let host = await Tailscale.dnsName()
-            await MainActor.run { state.tailscaleHost = host }
-        }
+        state.refreshTailscale()
 
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task { @MainActor in state.refresh() }
@@ -336,11 +346,10 @@ struct MenuContent: View {
             Button("Copy API Token") { state.copy(token) }
         }
         Divider()
-        Toggle("Docs Page", isOn: state.setting(\.docsEnabled))
         if state.settings.docsEnabled {
             Button("Open Docs Page") { NSWorkspace.shared.open(URL(string: "http://localhost:\(state.port)/")!) }
+            Divider()
         }
-        Divider()
         Button("Settings…") { state.windows.showSettings(state) }
             .keyboardShortcut(",")
         Divider()
@@ -350,8 +359,30 @@ struct MenuContent: View {
 }
 
 enum Tailscale {
-    /// This Mac's MagicDNS name (e.g. "my-mac.tailnet-123.ts.net"), if Tailscale is installed and up.
-    static func dnsName() async -> String? {
+    struct Status: Sendable {
+        /// This Mac's MagicDNS name (e.g. "my-mac.tailnet-123.ts.net").
+        var dnsName: String?
+        /// Every other computer on the tailnet: its addresses → its short name ("server").
+        var peers: [String: String] = [:]
+    }
+
+    /// Empty when Tailscale isn't installed or isn't up.
+    static func status() async -> Status {
+        guard let json = await statusJSON() else { return Status() }
+        var status = Status()
+        if let me = json["Self"] as? [String: Any], let name = me["DNSName"] as? String, !name.isEmpty {
+            status.dnsName = name.hasSuffix(".") ? String(name.dropLast()) : name
+        }
+        for case let peer as [String: Any] in (json["Peer"] as? [String: Any])?.values ?? [:].values {
+            // The MagicDNS label is what you'd type ("server"); HostName can be "localhost" or long.
+            let label = (peer["DNSName"] as? String)?.split(separator: ".").first.map(String.init)
+            guard let name = label ?? peer["HostName"] as? String, !name.isEmpty else { continue }
+            for ip in peer["TailscaleIPs"] as? [String] ?? [] { status.peers[ip] = name }
+        }
+        return status
+    }
+
+    private static func statusJSON() async -> [String: Any]? {
         let candidates = [
             "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
             "/opt/homebrew/bin/tailscale",
@@ -367,10 +398,6 @@ enum Tailscale {
         guard (try? process.run()) != nil else { return nil }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let me = json["Self"] as? [String: Any],
-              let name = me["DNSName"] as? String, !name.isEmpty
-        else { return nil }
-        return name.hasSuffix(".") ? String(name.dropLast()) : name
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 }

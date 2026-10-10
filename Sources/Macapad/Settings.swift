@@ -33,7 +33,7 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var tailscaleAllowed = true
     var tailscaleDiscoverable = true
     var internetAllowed = false
-    /// Serve the docs page at / (toggled from the menu bar).
+    /// Serve the docs page at / (toggled in Settings).
     var docsEnabled = false
     /// While set and in the future, nothing runs, from any device. Far future = until turned back on.
     var pausedUntil: Date?

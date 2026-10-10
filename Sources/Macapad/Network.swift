@@ -9,15 +9,28 @@ enum Network {
     static func classify(remote: String?, headers: HTTPFields) -> NetworkKind {
         guard let remote, let ip = IP(remote) else { return .internet }
         if ip.isLoopback {
-            if let forwarded = headers[HTTPField.Name("X-Forwarded-For")!]?
-                .split(separator: ",").first.map({ $0.trimmingCharacters(in: .whitespaces) }),
-               let client = IP(forwarded) {
+            if let client = forwardedFor(headers).flatMap(IP.init) {
                 return classify(client)
             }
             if headers[HTTPField.Name("Tailscale-User-Login")!] != nil { return .tailscale }
             return .thisMac
         }
         return classify(ip)
+    }
+
+    /// The caller's address, for showing in Settings: the forwarded one behind `tailscale serve`,
+    /// and plain a.b.c.d for IPv4 wrapped in IPv6.
+    static func address(remote: String?, headers: HTTPFields) -> String? {
+        guard let remote, let ip = IP(remote) else { return remote }
+        if ip.isLoopback, let forwarded = forwardedFor(headers), let client = IP(forwarded) {
+            return client.v4String ?? forwarded
+        }
+        return ip.v4String ?? remote
+    }
+
+    private static func forwardedFor(_ headers: HTTPFields) -> String? {
+        headers[HTTPField.Name("X-Forwarded-For")!]?
+            .split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     private static func classify(_ ip: IP) -> NetworkKind {

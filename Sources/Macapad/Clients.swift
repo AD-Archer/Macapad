@@ -14,6 +14,9 @@ struct Client: Codable, Sendable, Identifiable, Equatable, ResponseEncodable {
     var key: String?
     var firstSeen: Date
     var lastSeen: Date
+    /// Where it last called from.
+    var network: NetworkKind?
+    var address: String?
     /// The schedule (in settings) it works during. Nil = the same as its device
     /// (all the time, for the owner token).
     var scheduleId: String?
@@ -82,7 +85,7 @@ final class Clients: @unchecked Sendable {
     /// The client a request named, added the first time it calls. A request with an id matches
     /// that id (picking up a new name), or adopts a client of the same name that has none yet;
     /// one without an id matches by name. Names ignore case.
-    func resolve(_ label: ClientLabel, deviceId: String?) throws -> Client {
+    func resolve(_ label: ClientLabel, deviceId: String?, network: NetworkKind, address: String?) throws -> Client {
         let now = Date()
         let (client, isNew, shouldSave) = try lock.withLock { () -> (Client, Bool, Bool) in
             let mine = clients.indices.filter { clients[$0].deviceId == deviceId }
@@ -98,7 +101,10 @@ final class Clients: @unchecked Sendable {
                     client.key = label.key
                 }
                 client.lastSeen = now
+                client.network = network
+                client.address = address
                 let changed = client.name != clients[i].name || client.key != clients[i].key
+                    || client.network != clients[i].network || client.address != clients[i].address
                 clients[i] = client
                 // "Last used" only needs to be roughly right; don't rewrite the file on every press.
                 return (client, false, changed || now.timeIntervalSince(lastWrite) > 60)
@@ -107,7 +113,7 @@ final class Clients: @unchecked Sendable {
             let client = Client(
                 id: String(UUID().uuidString.prefix(8)).lowercased(),
                 name: label.name, deviceId: deviceId, key: label.key,
-                firstSeen: now, lastSeen: now
+                firstSeen: now, lastSeen: now, network: network, address: address
             )
             clients.append(client)
             return (client, true, true)

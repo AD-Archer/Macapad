@@ -11,6 +11,7 @@ final class Windows {
     private var qr: NSWindow?
 
     func showSettings(_ state: AppState) {
+        state.refreshTailscale()
         if settings == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: state)))
             window.title = "Macapad Settings"
@@ -477,9 +478,9 @@ struct SettingsView: View {
                         clientRow(client, followsLabel: "Always")
                     }
                 } header: {
-                    Text("Using the owner token")
+                    Text("API key clients")
                 } footer: {
-                    Text("Screens and scripts using the owner token name themselves, so each can have its own schedule. Forget one and it shows up again the next time it calls.")
+                    Text("Screens and scripts that call with the API key (Copy API Token in the menu bar). Each names itself, so each can have its own schedule. Forget one and it shows up again the next time it calls.")
                 }
             }
 
@@ -501,6 +502,14 @@ struct SettingsView: View {
                 Text("Schedules")
             } footer: {
                 Text("Pick a schedule next to a device or screen to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
+            }
+
+            Section {
+                Toggle("Serve the docs page", isOn: state.setting(\.docsEnabled))
+            } header: {
+                Text("Docs page")
+            } footer: {
+                Text("A page on this Mac’s address that explains the API and lets you try it. Open it from the menu bar.")
             }
 
             Section {
@@ -552,7 +561,7 @@ struct SettingsView: View {
         CallerRow(
             state: state,
             name: client.name,
-            details: "last used \(client.lastSeen.formatted(.relative(presentation: .named)))",
+            details: clientDetails(client),
             off: state.offStatus(client),
             scheduleId: client.scheduleId,
             followsLabel: followsLabel,
@@ -563,6 +572,20 @@ struct SettingsView: View {
             removeLabel: "Forget",
             remove: { Clients.shared.remove(client.id) }
         )
+    }
+
+    /// "from Tailscale (server) · last used 2 minutes ago"
+    private func clientDetails(_ client: Client) -> String {
+        var parts: [String] = []
+        if let network = client.network {
+            var from = "from \(network.label)"
+            if network != .thisMac, let address = client.address {
+                from += " (\(state.tailscalePeers[address] ?? address))"
+            }
+            parts.append(from)
+        }
+        parts.append("last used \(client.lastSeen.formatted(.relative(presentation: .named)))")
+        return parts.joined(separator: " · ")
     }
 
     private func details(_ device: PairedDevice) -> String {

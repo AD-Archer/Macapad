@@ -8,6 +8,12 @@ A menu bar app that lets any frontend control your Mac over HTTP and WebSocket:
 media keys, keyboard shortcuts, opening URLs and apps, running Shortcuts and AppleScript.
 Macapad has no interface of its own. You build the frontend; Macapad runs whatever steps it sends.
 
+<p align="center">
+  <img src="assets/image.png" alt="A pad of eight keys on a black screen: volume down, volume up, previous, next, play/pause, mute, and app icons for Supersonic and Firefox Developer Edition" width="720">
+  <br>
+  <sub>A pad page in <a href="https://desk.archerhomelab.work">archersdesk</a>, one frontend for Macapad.</sub>
+</p>
+
 ## Warning
 This probably isn't safe to expose to the web, do not allow your mac to be controlled outisde of your lan unless you know what you're doing
 
@@ -59,7 +65,7 @@ permission across rebuilds. Without it the app is signed ad-hoc and every rebuil
 
 For development: `just dev` (runs `swift run`; `just dev 7399` for another port). The menu bar shows a fallback grid icon because the custom icons only load from the bundled app. Set `MACAPAD_PORT` to change the port (default `7317`).
 
-The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Token**, **Docs Page** and **Settings…** items.
+The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Token**, **Open Docs Page** (while the docs page is on) and **Settings…** items.
 
 ## Settings
 
@@ -75,7 +81,8 @@ The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Tok
 | Internet → Allow connections | off | Accept requests from any other address (port forwarding, Tailscale Funnel). Pairing is never allowed from here |
 | Pause → Pause all devices | off | Nothing runs, from any device or the owner token: for an hour, until tomorrow morning, until a time you pick, or until you turn it back on. Also in the menu bar |
 | Paired devices | | Every device you've allowed, with the [named clients](#naming-your-client) using its token underneath. Next to each: when it works (**Always**, **Same as device**, or a schedule), and **⋯** to pause it or remove it |
-| Using the owner token | | Every [named client](#naming-your-client) calling with the owner token, e.g. each archersdesk screen. Same controls; **Forget** clears one until it calls again |
+| API key clients | | Every [named client](#naming-your-client) calling with the owner token, e.g. each archersdesk screen, with where it last called from (network, and the computer's Tailscale name or its address). Same controls; **Forget** clears one until it calls again |
+| Docs page → Serve the docs page | off | Serves the [docs page](#docs-page) at `/`. **Open Docs Page** in the menu bar opens it |
 | Schedules | Work hours (weekdays 9–5) | Named hours a device can be set to work in, e.g. an office macro pad that's only on during work. Can run past midnight. Deleting one sets its devices back to **Always** |
 
 Programs on the Mac itself (localhost) are always allowed. A request from a network that's turned off gets `403`.
@@ -287,8 +294,8 @@ ws.onopen = () => {
 `Resources/docs.html` is these docs as a web page that also works as a frontend: pair from it (by code, by scanning
 the QR code, or by pasting a pairing link), and every example has a **Try** button that runs on your Mac.
 
-- **From the Mac:** tick **Docs Page** in the menu bar. Macapad then serves it at `/`, e.g. `http://<lan-ip>:7317/`
-  (**Open Docs Page** opens it). Off by default. It only knows about the Mac that served it.
+- **From the Mac:** turn on **Settings → Docs page → Serve the docs page**. Macapad then serves it at `/`, e.g.
+  `http://<lan-ip>:7317/` (**Open Docs Page** in the menu bar opens it). Off by default. It only knows about the Mac that served it.
 - **From the tester:** `tester/` serves the same page plus `/discover`, which finds Macs over Bonjour and your
   tailnet (browsers can't do either). Run it on the Mac and open it from your phone:
 

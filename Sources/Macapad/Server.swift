@@ -12,6 +12,8 @@ struct MacapadContext: RequestContext, WebSocketRequestContext {
     let remoteAddress: String?
     /// Set by NetworkMiddleware.
     var network: NetworkKind = .internet
+    /// The caller's address as shown in Settings (set by NetworkMiddleware).
+    var address: String?
     /// Set by AuthMiddleware; nil on the few routes that don't need a token.
     var caller: Caller?
 
@@ -247,7 +249,7 @@ final class Server: Sendable {
 
         router.get("/") { _, _ -> Response in
             guard SettingsStore.shared.current.docsEnabled else {
-                throw HTTPError(.notFound, message: "The docs page is off. Turn it on from Macapad's menu bar.")
+                throw HTTPError(.notFound, message: "The docs page is off. Turn it on in Macapad's Settings.")
             }
             guard let html = Docs.html() else {
                 throw HTTPError(.notFound, message: "This build of Macapad has no docs page")
@@ -265,7 +267,10 @@ final class Server: Sendable {
             let label = try? ClientLabel.from(context.request)
             for try await message in inbound.messages(maxSize: 1 << 20) {
                 // A device removed in Settings loses its open connection on its next message.
-                guard let caller = try? AuthMiddleware.caller(for: suppliedToken, owner: self.token, label: label) else {
+                guard let caller = try? AuthMiddleware.caller(
+                    for: suppliedToken, owner: self.token, label: label,
+                    network: context.requestContext.network, address: context.requestContext.address
+                ) else {
                     try await outbound.close(.policyViolation, reason: "Unpaired")
                     return
                 }
@@ -359,6 +364,7 @@ struct NetworkMiddleware: RouterMiddleware {
     func handle(_ request: Request, context: MacapadContext, next: (Request, MacapadContext) async throws -> Response) async throws -> Response {
         var context = context
         context.network = Network.classify(remote: context.remoteAddress, headers: request.headers)
+        context.address = Network.address(remote: context.remoteAddress, headers: request.headers)
         guard SettingsStore.shared.current.allows(context.network) else {
             throw HTTPError(.forbidden, message: "Macapad is set to refuse connections from \(context.network.label)")
         }
@@ -390,12 +396,16 @@ struct AuthMiddleware: RouterMiddleware {
         }
         let supplied = bearer ?? request.uri.queryParameters.get("token") ?? ""
         var context = context
-        context.caller = try Self.caller(for: supplied, owner: token, label: ClientLabel.from(request))
+        context.caller = try Self.caller(
+            for: supplied, owner: token, label: ClientLabel.from(request), network: context.network, address: context.address
+        )
         return try await next(request, context)
     }
 
     /// The caller for a token and the client it named, or the HTTP error to answer with.
-    static func caller(for supplied: String, owner: String, label: ClientLabel?) throws -> Caller {
+    static func caller(
+        for supplied: String, owner: String, label: ClientLabel?, network: NetworkKind, address: String?
+    ) throws -> Caller {
         var device: PairedDevice?
         if supplied.isEmpty {
             throw HTTPError(.unauthorized, message: "Missing or wrong token")
@@ -410,7 +420,8 @@ struct AuthMiddleware: RouterMiddleware {
             return Caller(device: device)
         }
         do {
-            return Caller(device: device, client: try Clients.shared.resolve(label, deviceId: device?.id))
+            let client = try Clients.shared.resolve(label, deviceId: device?.id, network: network, address: address)
+            return Caller(device: device, client: client)
         } catch {
             throw HTTPError(.tooManyRequests, message: error.localizedDescription)
         }

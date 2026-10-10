@@ -42,6 +42,12 @@ final class AppState: ObservableObject {
     @Published var qrKey: String?
     /// The last device that scanned the QR code, while its window is open.
     @Published var qrPaired: String?
+    /// Ticks with the refresh timer, so "paused until" labels clear themselves when time's up.
+    @Published var now = Date()
+    /// What the "pause until a time" sheet in Settings is for, while it's open.
+    @Published var pausePrompt: PausePrompt?
+    /// The schedule open in Settings' editor sheet.
+    @Published var editingSchedule: EditingSchedule?
 
     var token: String?
     let windows = Windows()
@@ -68,6 +74,44 @@ final class AppState: ObservableObject {
                 SettingsStore.shared.update { $0[keyPath: keyPath] = value }
             }
         )
+    }
+
+    /// When everything comes back on, while it's paused.
+    var pausedUntil: Date? { settings.pausedUntil.flatMap { $0 > now ? $0 : nil } }
+
+    /// Pauses every device (and the owner token) until a time; nil turns everything back on.
+    func pauseAll(until: Date?) {
+        SettingsStore.shared.update { $0.pausedUntil = until }
+    }
+
+    func pause(_ device: PairedDevice, until: Date?) {
+        Devices.shared.update(device.id) { $0.pausedUntil = until }
+    }
+
+    func setSchedule(_ device: PairedDevice, _ scheduleId: String?) {
+        Devices.shared.update(device.id) { $0.scheduleId = scheduleId }
+    }
+
+    func saveSchedule(_ schedule: Schedule) {
+        SettingsStore.shared.update { settings in
+            if let i = settings.schedules.firstIndex(where: { $0.id == schedule.id }) {
+                settings.schedules[i] = schedule
+            } else {
+                settings.schedules.append(schedule)
+            }
+        }
+    }
+
+    func deleteSchedule(_ schedule: Schedule) {
+        Devices.shared.clearSchedule(schedule.id)
+        SettingsStore.shared.update { $0.schedules.removeAll { $0.id == schedule.id } }
+    }
+
+    /// Why a device is off right now, leaving out a pause of the whole Mac (shown separately).
+    func offStatus(_ device: PairedDevice) -> OffStatus? {
+        var settings = settings
+        settings.pausedUntil = nil
+        return Availability.check(.device(device), settings: settings, now: now)
     }
 
     func settingsChanged(_ next: MacapadSettings) {
@@ -158,6 +202,7 @@ final class AppState: ObservableObject {
     }
 
     func refresh() {
+        now = Date()
         hasAccessibility = Input.hasPermission
         openAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -229,6 +274,17 @@ struct MenuContent: View {
 
     var body: some View {
         Text(state.status)
+        if let until = state.pausedUntil {
+            Text("Paused until \(Availability.describeUntil(until, now: state.now))")
+            Button("Resume") { state.pauseAll(until: nil) }
+        } else {
+            Menu("Pause All Devices") {
+                PauseOptions { state.pauseAll(until: $0) } pickTime: {
+                    state.pausePrompt = PausePrompt(target: .all)
+                    state.windows.showSettings(state)
+                }
+            }
+        }
         if let request = state.pending.first {
             Button("Pairing request from \(request.name)…") { state.windows.updatePairing(state) }
         }

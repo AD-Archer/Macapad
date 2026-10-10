@@ -35,6 +35,10 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var internetAllowed = false
     /// Serve the docs page at / (toggled from the menu bar).
     var docsEnabled = false
+    /// While set and in the future, nothing runs, from any device. Far future = until turned back on.
+    var pausedUntil: Date?
+    /// Hours devices can be set to work in. Devices without one work all the time.
+    var schedules: [Schedule] = [.workHours]
 
     /// The name to advertise and show in pairing.
     var displayName: String {
@@ -76,6 +80,8 @@ struct MacapadSettings: Codable, Equatable, Sendable {
         tailscaleDiscoverable = try c.decodeIfPresent(Bool.self, forKey: .tailscaleDiscoverable) ?? d.tailscaleDiscoverable
         internetAllowed = try c.decodeIfPresent(Bool.self, forKey: .internetAllowed) ?? d.internetAllowed
         docsEnabled = try c.decodeIfPresent(Bool.self, forKey: .docsEnabled) ?? d.docsEnabled
+        pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
+        schedules = try c.decodeIfPresent([Schedule].self, forKey: .schedules) ?? d.schedules
     }
 }
 
@@ -88,7 +94,9 @@ final class SettingsStore: @unchecked Sendable {
     private let fileURL = Config.directory.appendingPathComponent("settings.json")
 
     private init() {
-        if let saved = try? JSONDecoder().decode(MacapadSettings.self, from: Data(contentsOf: fileURL)) {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let saved = try? decoder.decode(MacapadSettings.self, from: Data(contentsOf: fileURL)) {
             value = saved
         } else {
             value = MacapadSettings()
@@ -120,6 +128,7 @@ final class SettingsStore: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: Config.directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
         try? encoder.encode(settings).write(to: fileURL, options: .atomic)
     }
 }

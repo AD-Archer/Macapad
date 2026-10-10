@@ -14,6 +14,10 @@ struct PairedDevice: Codable, Sendable, Identifiable, ResponseEncodable {
     var pairedAt: Date
     var lastSeen: Date?
     var tokenHash: String
+    /// The schedule (in settings) this device works during. Nil = all the time.
+    var scheduleId: String?
+    /// While set and in the future, this device can't run anything. Far future = until turned back on.
+    var pausedUntil: Date?
 
     /// Without the token hash, for API responses.
     var publicInfo: PairedDevice {
@@ -62,6 +66,20 @@ final class Devices: @unchecked Sendable {
 
     func remove(_ id: String) {
         mutate { $0.removeAll { $0.id == id } }
+    }
+
+    func update(_ id: String, _ change: (inout PairedDevice) -> Void) {
+        mutate { devices in
+            guard let i = devices.firstIndex(where: { $0.id == id }) else { return }
+            change(&devices[i])
+        }
+    }
+
+    /// Devices on a schedule that's being deleted go back to working all the time.
+    func clearSchedule(_ scheduleId: String) {
+        mutate { devices in
+            for i in devices.indices where devices[i].scheduleId == scheduleId { devices[i].scheduleId = nil }
+        }
     }
 
     /// The device a token belongs to, noting that it was just used.

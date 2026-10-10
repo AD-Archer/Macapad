@@ -73,6 +73,8 @@ struct Me: Codable, ResponseEncodable {
     var owner: Bool
     var device: PairedDevice?
     var mac: MacInfo
+    /// Set while this token can't run anything (paused, or outside its schedule).
+    var off: OffStatus?
 }
 
 struct RunRequest: Decodable {
@@ -82,6 +84,13 @@ struct RunRequest: Decodable {
 struct RunResult: Codable, ResponseEncodable {
     var ok: Bool
     var error: String?
+}
+
+/// The 423 body when the caller is paused or outside its schedule: the usual error, plus why.
+struct OffError: Codable, ResponseEncodable {
+    struct Message: Codable { var message: String }
+    var error: Message
+    var off: OffStatus
 }
 
 /// Messages a client can send over the WebSocket.
@@ -169,11 +178,13 @@ final class Server: Sendable {
         }
 
         router.get("/api/me") { _, context -> Me in
-            let mac = Self.macInfo(SettingsStore.shared.current)
+            let settings = SettingsStore.shared.current
+            let mac = Self.macInfo(settings)
+            let off = Availability.check(context.caller, settings: settings)
             if case .device(let device) = context.caller {
-                return Me(owner: false, device: device.publicInfo, mac: mac)
+                return Me(owner: false, device: device.publicInfo, mac: mac, off: off)
             }
-            return Me(owner: true, mac: mac)
+            return Me(owner: true, mac: mac, off: off)
         }
 
         // Lets a device forget this Mac (unpair itself).
@@ -185,9 +196,14 @@ final class Server: Sendable {
             return RunResult(ok: true)
         }
 
-        router.post("/api/run") { request, context -> RunResult in
+        router.post("/api/run") { request, context -> Response in
             let body = try await request.decode(as: RunRequest.self, context: context)
-            return await Self.execute(body.steps)
+            if let off = Availability.check(context.caller, settings: SettingsStore.shared.current) {
+                var response = try OffError(error: .init(message: off.message), off: off).response(from: request, context: context)
+                response.status = .init(code: 423, reasonPhrase: "Locked")
+                return response
+            }
+            return try await Self.execute(body.steps).response(from: request, context: context)
         }
 
         router.get("/api/actions") { _, _ in ActionList(actions: Actions.shared.all) }
@@ -246,7 +262,7 @@ final class Server: Sendable {
             let suppliedToken = context.request.uri.queryParameters.get("token") ?? ""
             for try await message in inbound.messages(maxSize: 1 << 20) {
                 // A device removed in Settings loses its open connection on its next message.
-                guard AuthMiddleware.caller(for: suppliedToken, owner: self.token) != nil else {
+                guard let caller = AuthMiddleware.caller(for: suppliedToken, owner: self.token) else {
                     try await outbound.close(.policyViolation, reason: "Unpaired")
                     return
                 }
@@ -260,6 +276,12 @@ final class Server: Sendable {
                 case "run":
                     // Run outside the read loop so a long sequence doesn't block the next one.
                     let steps = msg.steps ?? []
+                    if let off = Availability.check(caller, settings: SettingsStore.shared.current) {
+                        try await outbound.write(.text(Self.encode([
+                            "type": "result", "ref": msg.ref ?? "", "ok": false, "error": off.message, "off": off,
+                        ])))
+                        continue
+                    }
                     Task {
                         let result = await Self.execute(steps)
                         try? await outbound.write(.text(Self.encode([
@@ -306,6 +328,7 @@ final class Server: Sendable {
     static func encode(_ value: [String: any Encodable & Sendable]) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .withoutEscapingSlashes
+        encoder.dateEncodingStrategy = .iso8601
         let wrapped = value.mapValues(AnyEncodable.init)
         return (try? String(decoding: encoder.encode(wrapped), as: UTF8.self)) ?? "{}"
     }

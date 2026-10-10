@@ -184,11 +184,227 @@ struct QRPairView: View {
     }
 }
 
+/// What a "pause until a time" sheet pauses.
+enum PauseTarget: Identifiable, Equatable {
+    case all
+    case device(String)
+
+    var id: String {
+        switch self {
+        case .all: return "all"
+        case .device(let id): return "device-" + id
+        }
+    }
+}
+
+/// An open "pause until a time" sheet, with the time picked so far.
+struct PausePrompt: Identifiable {
+    let target: PauseTarget
+    let date = Draft(Calendar.current.date(byAdding: .hour, value: 2, to: Date()) ?? Date())
+    var id: String { target.id }
+}
+
+/// An editable copy for a sheet. Sheets keep their state in one of these rather than `@State`,
+/// which is a macro the Command Line Tools toolchain can't build.
+final class Draft<Value>: ObservableObject {
+    @Published var value: Value
+    init(_ value: Value) { self.value = value }
+}
+
+/// The ways to pause, for the menu bar and Settings menus.
+struct PauseOptions: View {
+    let pause: (Date) -> Void
+    let pickTime: () -> Void
+
+    var body: some View {
+        Button("For 1 Hour") { pause(Date().addingTimeInterval(3600)) }
+        Button("Until Tomorrow Morning") { pause(Availability.tomorrowMorning()) }
+        Button("Until I Turn It Back On") { pause(Availability.indefinitely) }
+        Divider()
+        Button("Until a Time…") { pickTime() }
+    }
+}
+
+struct PauseUntilSheet: View {
+    let title: String
+    @ObservedObject var date: Draft<Date>
+    let onPause: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.headline)
+            DatePicker("Until", selection: $date.value, in: Date()...)
+                .datePickerStyle(.graphical)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Pause") {
+                    onPause(date.value)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+}
+
+/// A schedule being added or edited in its sheet.
+final class EditingSchedule: ObservableObject, Identifiable {
+    @Published var schedule: Schedule
+    @Published var confirmDelete = false
+    let isNew: Bool
+    var id: String { schedule.id }
+
+    init(_ schedule: Schedule, isNew: Bool) {
+        self.schedule = schedule
+        self.isNew = isNew
+    }
+}
+
+struct ScheduleEditor: View {
+    @ObservedObject var editing: EditingSchedule
+    /// How many devices follow this schedule, for the delete warning.
+    let usedBy: Int
+    let onSave: (Schedule) -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var schedule: Schedule {
+        get { editing.schedule }
+        nonmutating set { editing.schedule = newValue }
+    }
+    private var isNew: Bool { editing.isNew }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(isNew ? "New Schedule" : "Edit Schedule").font(.headline)
+
+            TextField("Name", text: $editing.schedule.name, prompt: Text("Work hours"))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Days")
+                HStack(spacing: 4) {
+                    ForEach(Schedule.weekOrder, id: \.self) { day in
+                        Toggle(Calendar.current.shortWeekdaySymbols[day - 1], isOn: dayBinding(day))
+                            .toggleStyle(.button)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("All day", isOn: Binding(
+                    get: { schedule.allDay },
+                    set: { allDay in
+                        schedule.start = allDay ? 0 : 9 * 60
+                        schedule.end = allDay ? 0 : 17 * 60
+                    }
+                ))
+                if !schedule.allDay {
+                    HStack(spacing: 16) {
+                        DatePicker("From", selection: timeBinding(\.start), displayedComponents: .hourAndMinute)
+                        DatePicker("To", selection: timeBinding(\.end), displayedComponents: .hourAndMinute)
+                    }
+                    .fixedSize()
+                    if schedule.end < schedule.start {
+                        Text("Ends the next morning.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Label(schedule.summary, systemImage: "clock")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                if !isNew {
+                    Button("Delete Schedule…", role: .destructive) { editing.confirmDelete = true }
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(isNew ? "Add" : "Save") {
+                    var saved = schedule
+                    saved.name = saved.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if saved.name.isEmpty { saved.name = "Schedule" }
+                    onSave(saved)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(schedule.days.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+        .confirmationDialog("Delete “\(schedule.name)”?", isPresented: $editing.confirmDelete) {
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text(usedBy == 0 ? "No devices use it."
+                : "\(usedBy == 1 ? "1 device uses" : "\(usedBy) devices use") it. They’ll work at all times.")
+        }
+    }
+
+    private func dayBinding(_ day: Int) -> Binding<Bool> {
+        Binding(
+            get: { schedule.days.contains(day) },
+            set: { on in
+                schedule.days.removeAll { $0 == day }
+                if on { schedule.days.append(day) }
+                schedule.days.sort()
+            }
+        )
+    }
+
+    private func timeBinding(_ keyPath: WritableKeyPath<Schedule, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let minutes = schedule[keyPath: keyPath]
+                return Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                schedule[keyPath: keyPath] = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            }
+        )
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var state: AppState
 
     var body: some View {
         Form {
+            Section {
+                if let until = state.pausedUntil {
+                    HStack {
+                        Label("Paused until \(Availability.describeUntil(until, now: state.now))", systemImage: "pause.circle.fill")
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("Resume") { state.pauseAll(until: nil) }
+                    }
+                } else {
+                    LabeledContent("Pause all devices") {
+                        Menu("Pause") {
+                            PauseOptions { state.pauseAll(until: $0) } pickTime: { state.pausePrompt = PausePrompt(target: .all) }
+                        }
+                        .fixedSize()
+                    }
+                }
+            } header: {
+                Text("Pause")
+            } footer: {
+                Text("While paused, no device can run anything on this Mac. Handy when you’re away from it.")
+            }
+
             Section("This Mac") {
                 TextField("Name", text: state.setting(\.name), prompt: Text(Host.current().localizedName ?? "Mac"))
                 Toggle("Open at login", isOn: Binding(get: { state.openAtLogin }, set: { state.setOpenAtLogin($0) }))
@@ -237,11 +453,65 @@ struct SettingsView: View {
                             Text(details(device))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let off = state.offStatus(device) {
+                                Text(offLabel(off))
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                         Spacer()
-                        Button("Remove") { Devices.shared.remove(device.id) }
+                        Picker("Works", selection: Binding(
+                            get: { device.scheduleId.flatMap { id in state.settings.schedules.contains { $0.id == id } ? id : nil } },
+                            set: { state.setSchedule(device, $0) }
+                        )) {
+                            Text("Always").tag(String?.none)
+                            ForEach(state.settings.schedules) { schedule in
+                                Text(schedule.name).tag(Optional(schedule.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .help("When this device works")
+                        Menu {
+                            if let until = device.pausedUntil, until > state.now {
+                                Button("Resume") { state.pause(device, until: nil) }
+                            } else {
+                                Menu("Pause") {
+                                    PauseOptions { state.pause(device, until: $0) } pickTime: {
+                                        state.pausePrompt = PausePrompt(target: .device(device.id))
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button("Remove Device", role: .destructive) { Devices.shared.remove(device.id) }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
                     }
                 }
+            }
+
+            Section {
+                ForEach(state.settings.schedules) { schedule in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(schedule.name)
+                            Text(schedule.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Edit") { state.editingSchedule = EditingSchedule(schedule, isNew: false) }
+                    }
+                }
+                Button("Add Schedule…") { state.editingSchedule = EditingSchedule(Schedule(), isNew: true) }
+            } header: {
+                Text("Schedules")
+            } footer: {
+                Text("Pick a schedule next to a device to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
             }
 
             Section {
@@ -258,7 +528,36 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 620)
+        .frame(width: 480, height: 680)
+        .sheet(item: $state.editingSchedule) { item in
+            ScheduleEditor(
+                editing: item,
+                usedBy: state.devices.filter { $0.scheduleId == item.id }.count,
+                onSave: state.saveSchedule,
+                onDelete: { state.deleteSchedule(item.schedule) }
+            )
+        }
+        .sheet(item: $state.pausePrompt) { prompt in
+            PauseUntilSheet(title: pauseTitle(prompt.target), date: prompt.date) { date in
+                switch prompt.target {
+                case .all: state.pauseAll(until: date)
+                case .device(let id):
+                    if let device = state.devices.first(where: { $0.id == id }) { state.pause(device, until: date) }
+                }
+            }
+        }
+    }
+
+    private func pauseTitle(_ target: PauseTarget) -> String {
+        switch target {
+        case .all: return "Pause all devices until…"
+        case .device(let id): return "Pause “\(state.devices.first { $0.id == id }?.name ?? "device")” until…"
+        }
+    }
+
+    private func offLabel(_ off: OffStatus) -> String {
+        let until = off.until.map { Availability.describe($0, now: state.now) } ?? "you turn it back on"
+        return off.reason == .device ? "Paused until \(until)" : "Off until \(until)"
     }
 
     private func details(_ device: PairedDevice) -> String {

@@ -73,9 +73,14 @@ The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Tok
 | Tailscale → Allow connections | on | Accept requests from your tailnet (directly or through `tailscale serve`) |
 | Tailscale → Let devices find this Mac | on | Show the Mac's name in `/api/health` and accept pairing requests from the tailnet |
 | Internet → Allow connections | off | Accept requests from any other address (port forwarding, Tailscale Funnel). Pairing is never allowed from here |
-| Paired devices | | Every device you've allowed, with **Remove** to cut one off |
+| Pause → Pause all devices | off | Nothing runs, from any device or the owner token: for an hour, until tomorrow morning, until a time you pick, or until you turn it back on. Also in the menu bar |
+| Paired devices | | Every device you've allowed. Next to each: when it works (**Always** or a schedule), and **⋯** to pause just that device or remove it |
+| Schedules | Work hours (weekdays 9–5) | Named hours a device can be set to work in, e.g. an office macro pad that's only on during work. Can run past midnight. Deleting one sets its devices back to **Always** |
 
 Programs on the Mac itself (localhost) are always allowed. A request from a network that's turned off gets `403`.
+
+Pausing and schedules stop `/api/run` and WebSocket `run`, not the rest of the API, so a paused frontend can still show its buttons.
+Schedules use the Mac's time zone.
 
 ## Connecting
 
@@ -173,9 +178,9 @@ Keys map to physical positions on a US keyboard layout.
 | POST | `/api/pair` | `{"name","app"?}` (no token needed) | `{"id","code","expiresIn","mac"}`; see [pairing](#discovery-and-pairing) |
 | POST | `/api/pair/qr` | `{"key","name","app"?}` (no token needed) | `{"status":"approved","token","device","mac"}`; see [pairing by QR code](#discovery-and-pairing) |
 | GET | `/api/pair/:id?wait=25` | none (no token needed) | `{"status":"pending"\|"approved"\|"denied"\|"expired","token"?,"device"?}` |
-| GET | `/api/me` | none | `{"owner":false,"device":{…},"mac":{…}}`: who your token belongs to |
+| GET | `/api/me` | none | `{"owner":false,"device":{…},"mac":{…},"off":{…}}`: who your token belongs to; `off` only while it [can't run anything](#paused-and-off-hours) |
 | DELETE | `/api/me` | none | `{"ok":true}`: unpairs this device (owner token can't) |
-| POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}` |
+| POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}`; `423` while [paused or off hours](#paused-and-off-hours) |
 | GET | `/api/actions` | none | `{"actions":[...]}`: built-ins, then yours |
 | POST | `/api/actions` | an action | the saved action (adds, or replaces the same `id`) |
 | DELETE | `/api/actions/:id` | none | `{"ok":true}`; built-ins can't be deleted |
@@ -192,6 +197,19 @@ curl -X POST http://localhost:7317/api/run \
   -H "Content-Type: application/json" \
   -d '{"steps":[{"type":"media","key":"playPause"}]}'
 ```
+
+### Paused and off hours
+
+While the Mac is paused, the device is paused, or it's outside the device's schedule, `/api/run` runs nothing and returns `423`:
+
+```json
+{ "error": { "message": "Outside Work hours. This device is off until Monday at 9:00 AM" },
+  "off": { "reason": "schedule", "until": "2026-10-19T13:00:00Z", "message": "Outside Work hours. …" } }
+```
+
+`reason` is `mac` (everything is paused; this applies to the owner token too), `device` or `schedule`. `until` is when
+it can run again, taking all three into account; it's missing when it stays off until someone turns it back on.
+`message` is ready to show. `GET /api/me` has the same `off` object, so a frontend can grey out its buttons up front.
 
 ## Actions
 
@@ -224,7 +242,8 @@ Use this for a frontend that stays open. It's faster than a new HTTP request for
 
 **The server sends:**
 
-- `{"type":"result","ref":"...","ok":true,"error":""}`: after each `run`, with the `ref` you sent.
+- `{"type":"result","ref":"...","ok":true,"error":""}`: after each `run`, with the `ref` you sent. When nothing ran
+  because of a [pause or schedule](#paused-and-off-hours) it's `"ok":false` with an `off` object too.
 - `{"type":"pong"}`: in reply to `ping`.
 
 **You send:**

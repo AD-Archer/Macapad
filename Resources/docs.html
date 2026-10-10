@@ -337,7 +337,7 @@ just install   # builds, copies to ~/Applications, launches</code></pre>
       <h2>WebSocket</h2>
       <p>For a frontend that stays open, <code>/api/ws?token=&lt;token&gt;</code> is quicker than a request per press. Browsers can’t set headers on a WebSocket, so the token goes in the URL.</p>
       <ul>
-        <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get back <code>{"type": "result", "ref", "ok", "error"}</code>.</li>
+        <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get back <code>{"type": "result", "ref", "ok", "error", "off"?}</code>. <code>off</code> is there when nothing ran because you’re paused or outside your schedule.</li>
         <li>Send <code>{"type": "ping"}</code> every ~25 seconds so proxies don’t close the connection. You get <code>{"type": "pong"}</code>.</li>
       </ul>
       <p>If a device is removed in Settings, its open connection closes the next time it sends anything.</p>
@@ -947,9 +947,9 @@ const API = [
   ["POST", "/api/pair", "<code>{name, app?}</code>, no token", "<code>{id, code, expiresIn, mac}</code>. See code pairing."],
   ["GET", "/api/pair/:id?wait=25", "none, no token", "<code>{status, token?, device?}</code>"],
   ["POST", "/api/pair/qr", "<code>{key, name, app?}</code>, no token", "<code>{status: \"approved\", token, device, mac}</code>. See QR pairing."],
-  ["GET", "/api/me", "none", "<code>{owner, device?, mac}</code>: who your token belongs to", "/api/me"],
+  ["GET", "/api/me", "none", "<code>{owner, device?, mac, off?}</code>: who your token belongs to. <code>off</code> is there while it can’t run anything.", "/api/me"],
   ["DELETE", "/api/me", "none", "Unpairs this device. The owner token can’t."],
-  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished"],
+  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished. <code>423</code> with <code>{error, off}</code> while paused or outside the device’s schedule."],
   ["GET", "/api/actions", "none", "<code>{actions: [...]}</code>: built-ins, then yours", "/api/actions"],
   ["POST", "/api/actions", "an action", "The saved action. Adds one, or replaces the same <code>id</code>."],
   ["DELETE", "/api/actions/:id", "none", "<code>{ok: true}</code>. Built-ins can’t be deleted."],

@@ -329,13 +329,14 @@ just install   # builds, copies to ~/Applications, launches</code></pre>
       <pre class="out" id="api-out" hidden></pre>
       <pre><code>curl -X POST http://localhost:7317/api/run \
   -H "Authorization: Bearer $(cat ~/.macapad/token)" \
+  -H "X-Macapad-Client: My script" \
   -H "Content-Type: application/json" \
   -d '{"steps":[{"type":"media","key":"playPause"}]}'</code></pre>
     </section>
 
     <section id="websocket">
       <h2>WebSocket</h2>
-      <p>For a frontend that stays open, <code>/api/ws?token=&lt;token&gt;</code> is quicker than a request per press. Browsers can’t set headers on a WebSocket, so the token goes in the URL.</p>
+      <p>For a frontend that stays open, <code>/api/ws?token=&lt;token&gt;</code> is quicker than a request per press. Browsers can’t set headers on a WebSocket, so the token goes in the URL, and so does your client name (<code>&amp;client=&lt;name&gt;</code>) if you send one.</p>
       <ul>
         <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get back <code>{"type": "result", "ref", "ok", "error", "off"?}</code>. <code>off</code> is there when nothing ran because you’re paused or outside your schedule.</li>
         <li>Send <code>{"type": "ping"}</code> every ~25 seconds so proxies don’t close the connection. You get <code>{"type": "pong"}</code>.</li>
@@ -371,6 +372,9 @@ ws.onopen = () =&gt; {
         <li><b>Device tokens</b> come from pairing. Each device has its own, and removing one in Settings cuts off only that device.</li>
         <li><b>The owner token</b> is in <code>~/.macapad/token</code> (menu bar: Copy API Token), for scripts and frontends set up by hand. It has full access.</li>
       </ul>
+      <h3>Naming your client</h3>
+      <p>Requests with the owner token must say who’s calling with <code>X-Macapad-Client: Office display</code> (or <code>?client=</code> on the WebSocket), or they get <code>400</code>. Percent-encode names that aren’t plain ASCII. Each name shows up in Macapad’s Settings with its own schedule and pause, so one server can call for several screens and each can keep different hours.</p>
+      <p>Paired devices already have a name, so for them it’s optional. One that sends it gets a named client under the device, which follows the device’s schedule unless you pick another. Add <code>X-Macapad-Client-Id</code> (or <code>?clientId=</code>), a stable id, to keep a client’s settings when it’s renamed.</p>
     </section>
   </main>
 </div>
@@ -947,9 +951,9 @@ const API = [
   ["POST", "/api/pair", "<code>{name, app?}</code>, no token", "<code>{id, code, expiresIn, mac}</code>. See code pairing."],
   ["GET", "/api/pair/:id?wait=25", "none, no token", "<code>{status, token?, device?}</code>"],
   ["POST", "/api/pair/qr", "<code>{key, name, app?}</code>, no token", "<code>{status: \"approved\", token, device, mac}</code>. See QR pairing."],
-  ["GET", "/api/me", "none", "<code>{owner, device?, mac, off?}</code>: who your token belongs to. <code>off</code> is there while it can’t run anything.", "/api/me"],
+  ["GET", "/api/me", "none", "<code>{owner, device?, client?, mac, off?}</code>: who your token belongs to, and the client you named. <code>off</code> is there while it can’t run anything.", "/api/me"],
   ["DELETE", "/api/me", "none", "Unpairs this device. The owner token can’t."],
-  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished. <code>423</code> with <code>{error, off}</code> while paused or outside the device’s schedule."],
+  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished. <code>423</code> with <code>{error, off}</code> while paused or outside its schedule."],
   ["GET", "/api/actions", "none", "<code>{actions: [...]}</code>: built-ins, then yours", "/api/actions"],
   ["POST", "/api/actions", "an action", "The saved action. Adds one, or replaces the same <code>id</code>."],
   ["DELETE", "/api/actions/:id", "none", "<code>{ok: true}</code>. Built-ins can’t be deleted."],

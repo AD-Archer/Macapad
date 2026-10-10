@@ -188,11 +188,13 @@ struct QRPairView: View {
 enum PauseTarget: Identifiable, Equatable {
     case all
     case device(String)
+    case client(String)
 
     var id: String {
         switch self {
         case .all: return "all"
         case .device(let id): return "device-" + id
+        case .client(let id): return "client-" + id
         }
     }
 }
@@ -447,50 +449,37 @@ struct SettingsView: View {
                 }
                 Button("Pair with QR Code…") { state.showQR() }
                 ForEach(state.devices) { device in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name)
-                            Text(details(device))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if let off = state.offStatus(device) {
-                                Text(offLabel(off))
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                        Spacer()
-                        Picker("Works", selection: Binding(
-                            get: { device.scheduleId.flatMap { id in state.settings.schedules.contains { $0.id == id } ? id : nil } },
-                            set: { state.setSchedule(device, $0) }
-                        )) {
-                            Text("Always").tag(String?.none)
-                            ForEach(state.settings.schedules) { schedule in
-                                Text(schedule.name).tag(Optional(schedule.id))
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                        .help("When this device works")
-                        Menu {
-                            if let until = device.pausedUntil, until > state.now {
-                                Button("Resume") { state.pause(device, until: nil) }
-                            } else {
-                                Menu("Pause") {
-                                    PauseOptions { state.pause(device, until: $0) } pickTime: {
-                                        state.pausePrompt = PausePrompt(target: .device(device.id))
-                                    }
-                                }
-                            }
-                            Divider()
-                            Button("Remove Device", role: .destructive) { Devices.shared.remove(device.id) }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
+                    CallerRow(
+                        state: state,
+                        name: device.name,
+                        details: details(device),
+                        off: state.offStatus(device),
+                        scheduleId: device.scheduleId,
+                        followsLabel: "Always",
+                        pausedUntil: device.pausedUntil,
+                        setSchedule: { state.setSchedule(device, $0) },
+                        pause: { state.pause(device, until: $0) },
+                        pickTime: { state.pausePrompt = PausePrompt(target: .device(device.id)) },
+                        removeLabel: "Remove Device",
+                        remove: { state.remove(device) }
+                    )
+                    ForEach(state.clients(of: device.id)) { client in
+                        clientRow(client, followsLabel: "Same as device")
+                            .padding(.leading, 20)
                     }
+                }
+            }
+
+            let ownerClients = state.clients(of: nil)
+            if !ownerClients.isEmpty {
+                Section {
+                    ForEach(ownerClients) { client in
+                        clientRow(client, followsLabel: "Always")
+                    }
+                } header: {
+                    Text("Using the owner token")
+                } footer: {
+                    Text("Screens and scripts using the owner token name themselves, so each can have its own schedule. Forget one and it shows up again the next time it calls.")
                 }
             }
 
@@ -511,7 +500,7 @@ struct SettingsView: View {
             } header: {
                 Text("Schedules")
             } footer: {
-                Text("Pick a schedule next to a device to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
+                Text("Pick a schedule next to a device or screen to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
             }
 
             Section {
@@ -532,7 +521,8 @@ struct SettingsView: View {
         .sheet(item: $state.editingSchedule) { item in
             ScheduleEditor(
                 editing: item,
-                usedBy: state.devices.filter { $0.scheduleId == item.id }.count,
+                usedBy: state.devices.filter { $0.scheduleId == item.id }.count
+                    + state.clients.filter { $0.scheduleId == item.id }.count,
                 onSave: state.saveSchedule,
                 onDelete: { state.deleteSchedule(item.schedule) }
             )
@@ -543,6 +533,8 @@ struct SettingsView: View {
                 case .all: state.pauseAll(until: date)
                 case .device(let id):
                     if let device = state.devices.first(where: { $0.id == id }) { state.pause(device, until: date) }
+                case .client(let id):
+                    if let client = state.clients.first(where: { $0.id == id }) { state.pause(client, until: date) }
                 }
             }
         }
@@ -552,12 +544,25 @@ struct SettingsView: View {
         switch target {
         case .all: return "Pause all devices until…"
         case .device(let id): return "Pause “\(state.devices.first { $0.id == id }?.name ?? "device")” until…"
+        case .client(let id): return "Pause “\(state.clients.first { $0.id == id }?.name ?? "client")” until…"
         }
     }
 
-    private func offLabel(_ off: OffStatus) -> String {
-        let until = off.until.map { Availability.describe($0, now: state.now) } ?? "you turn it back on"
-        return off.reason == .device ? "Paused until \(until)" : "Off until \(until)"
+    private func clientRow(_ client: Client, followsLabel: String) -> CallerRow {
+        CallerRow(
+            state: state,
+            name: client.name,
+            details: "last used \(client.lastSeen.formatted(.relative(presentation: .named)))",
+            off: state.offStatus(client),
+            scheduleId: client.scheduleId,
+            followsLabel: followsLabel,
+            pausedUntil: client.pausedUntil,
+            setSchedule: { state.setSchedule(client, $0) },
+            pause: { state.pause(client, until: $0) },
+            pickTime: { state.pausePrompt = PausePrompt(target: .client(client.id)) },
+            removeLabel: "Forget",
+            remove: { Clients.shared.remove(client.id) }
+        )
     }
 
     private func details(_ device: PairedDevice) -> String {
@@ -568,5 +573,72 @@ struct SettingsView: View {
             parts.append("last used \(seen.formatted(.relative(presentation: .named)))")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A paired device or named client in Settings: when it works, and pausing or removing it.
+struct CallerRow: View {
+    @ObservedObject var state: AppState
+    let name: String
+    let details: String
+    let off: OffStatus?
+    let scheduleId: String?
+    /// What having no schedule of its own means: "Always", or "Same as device" for a client.
+    let followsLabel: String
+    let pausedUntil: Date?
+    let setSchedule: (String?) -> Void
+    let pause: (Date?) -> Void
+    let pickTime: () -> Void
+    let removeLabel: String
+    let remove: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                Text(details)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let off {
+                    Text(offLabel(off))
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer()
+            Picker("Works", selection: Binding(
+                get: { scheduleId.flatMap { id in state.settings.schedules.contains { $0.id == id } ? id : nil } },
+                set: setSchedule
+            )) {
+                Text(followsLabel).tag(String?.none)
+                ForEach(state.settings.schedules) { schedule in
+                    Text(schedule.name).tag(Optional(schedule.id))
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .help("When this works")
+            Menu {
+                if let pausedUntil, pausedUntil > state.now {
+                    Button("Resume") { pause(nil) }
+                } else {
+                    Menu("Pause") {
+                        PauseOptions(pause: pause, pickTime: pickTime)
+                    }
+                }
+                Divider()
+                Button(removeLabel, role: .destructive, action: remove)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+    }
+
+    private func offLabel(_ off: OffStatus) -> String {
+        let until = off.until.map { Availability.describe($0, now: state.now) } ?? "you turn it back on"
+        return off.reason == .device ? "Paused until \(until)" : "Off until \(until)"
     }
 }

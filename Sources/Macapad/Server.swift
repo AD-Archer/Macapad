@@ -72,6 +72,8 @@ struct Me: Codable, ResponseEncodable {
     /// True for the token in ~/.macapad/token.
     var owner: Bool
     var device: PairedDevice?
+    /// The client this request named.
+    var client: Client?
     var mac: MacInfo
     /// Set while this token can't run anything (paused, or outside its schedule).
     var off: OffStatus?
@@ -114,7 +116,7 @@ final class Server: Sendable {
         router.add(middleware: PrivateNetworkAccessMiddleware())
         router.add(middleware: CORSMiddleware(
             allowOrigin: .originBased,
-            allowHeaders: [.accept, .authorization, .contentType, .origin],
+            allowHeaders: [.accept, .authorization, .contentType, .origin, ClientLabel.nameHeader, ClientLabel.keyHeader],
             allowMethods: [.get, .post, .delete, .options]
         ))
         router.add(middleware: NetworkMiddleware())
@@ -181,18 +183,17 @@ final class Server: Sendable {
             let settings = SettingsStore.shared.current
             let mac = Self.macInfo(settings)
             let off = Availability.check(context.caller, settings: settings)
-            if case .device(let device) = context.caller {
-                return Me(owner: false, device: device.publicInfo, mac: mac, off: off)
-            }
-            return Me(owner: true, mac: mac, off: off)
+            let device = context.caller?.device
+            return Me(owner: device == nil, device: device?.publicInfo, client: context.caller?.client, mac: mac, off: off)
         }
 
         // Lets a device forget this Mac (unpair itself).
         router.delete("/api/me") { _, context -> RunResult in
-            guard case .device(let device) = context.caller else {
+            guard let device = context.caller?.device else {
                 throw HTTPError(.badRequest, message: "The owner token can't be unpaired")
             }
             Devices.shared.remove(device.id)
+            Clients.shared.removeAll(deviceId: device.id)
             return RunResult(ok: true)
         }
 
@@ -260,9 +261,11 @@ final class Server: Sendable {
 
         router.ws("/api/ws") { inbound, outbound, context in
             let suppliedToken = context.request.uri.queryParameters.get("token") ?? ""
+            // Checked when the connection opened (AuthMiddleware), so this can't fail on a bad name.
+            let label = try? ClientLabel.from(context.request)
             for try await message in inbound.messages(maxSize: 1 << 20) {
                 // A device removed in Settings loses its open connection on its next message.
-                guard let caller = AuthMiddleware.caller(for: suppliedToken, owner: self.token) else {
+                guard let caller = try? AuthMiddleware.caller(for: suppliedToken, owner: self.token, label: label) else {
                     try await outbound.close(.policyViolation, reason: "Unpaired")
                     return
                 }
@@ -366,8 +369,13 @@ struct NetworkMiddleware: RouterMiddleware {
 /// Requires a token on /api/*, except health and pairing. Accepts the owner token
 /// (~/.macapad/token) or a paired device's token, as `Authorization: Bearer <token>`
 /// or `?token=<token>` (browsers can't set headers on WebSocket connections).
+/// The owner token must also name its client (`X-Macapad-Client` or `?client=`), so each
+/// screen or script can have its own schedule; a paired device already has a name.
 struct AuthMiddleware: RouterMiddleware {
     let token: String
+
+    static let unnamed = "Name this client: send an X-Macapad-Client header (or ?client= on the WebSocket), "
+        + "like “X-Macapad-Client: Office display”. Each name gets its own schedule in Macapad’s Settings."
 
     func handle(_ request: Request, context: MacapadContext, next: (Request, MacapadContext) async throws -> Response) async throws -> Response {
         let path = request.uri.path
@@ -381,18 +389,31 @@ struct AuthMiddleware: RouterMiddleware {
             header.hasPrefix("Bearer ") ? String(header.dropFirst(7)) : nil
         }
         let supplied = bearer ?? request.uri.queryParameters.get("token") ?? ""
-        guard let caller = Self.caller(for: supplied, owner: token) else {
-            throw HTTPError(.unauthorized, message: "Missing or wrong token")
-        }
         var context = context
-        context.caller = caller
+        context.caller = try Self.caller(for: supplied, owner: token, label: ClientLabel.from(request))
         return try await next(request, context)
     }
 
-    static func caller(for supplied: String, owner: String) -> Caller? {
-        guard !supplied.isEmpty else { return nil }
-        if Devices.constantTimeEquals(supplied, owner) { return .owner }
-        return Devices.shared.authenticate(supplied).map(Caller.device)
+    /// The caller for a token and the client it named, or the HTTP error to answer with.
+    static func caller(for supplied: String, owner: String, label: ClientLabel?) throws -> Caller {
+        var device: PairedDevice?
+        if supplied.isEmpty {
+            throw HTTPError(.unauthorized, message: "Missing or wrong token")
+        } else if !Devices.constantTimeEquals(supplied, owner) {
+            guard let paired = Devices.shared.authenticate(supplied) else {
+                throw HTTPError(.unauthorized, message: "Missing or wrong token")
+            }
+            device = paired
+        }
+        guard let label else {
+            if device == nil { throw HTTPError(.badRequest, message: unnamed) }
+            return Caller(device: device)
+        }
+        do {
+            return Caller(device: device, client: try Clients.shared.resolve(label, deviceId: device?.id))
+        } catch {
+            throw HTTPError(.tooManyRequests, message: error.localizedDescription)
+        }
     }
 }
 

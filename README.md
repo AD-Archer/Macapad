@@ -74,7 +74,8 @@ The menu bar icon has **Pair with QR Code…**, **Copy API URL**, **Copy API Tok
 | Tailscale → Let devices find this Mac | on | Show the Mac's name in `/api/health` and accept pairing requests from the tailnet |
 | Internet → Allow connections | off | Accept requests from any other address (port forwarding, Tailscale Funnel). Pairing is never allowed from here |
 | Pause → Pause all devices | off | Nothing runs, from any device or the owner token: for an hour, until tomorrow morning, until a time you pick, or until you turn it back on. Also in the menu bar |
-| Paired devices | | Every device you've allowed. Next to each: when it works (**Always** or a schedule), and **⋯** to pause just that device or remove it |
+| Paired devices | | Every device you've allowed, with the [named clients](#naming-your-client) using its token underneath. Next to each: when it works (**Always**, **Same as device**, or a schedule), and **⋯** to pause it or remove it |
+| Using the owner token | | Every [named client](#naming-your-client) calling with the owner token, e.g. each archersdesk screen. Same controls; **Forget** clears one until it calls again |
 | Schedules | Work hours (weekdays 9–5) | Named hours a device can be set to work in, e.g. an office macro pad that's only on during work. Can run past midnight. Deleting one sets its devices back to **Always** |
 
 Programs on the Mac itself (localhost) are always allowed. A request from a network that's turned off gets `403`.
@@ -102,6 +103,21 @@ There are two kinds of token:
 
 - **Device tokens** come from [pairing](#discovery-and-pairing). Each device gets its own, and you can remove one in Settings without touching the others. Only a hash is stored on the Mac (`~/.macapad/devices.json`).
 - **The owner token** lives in `~/.macapad/token`, for scripts and frontends set up by hand. Delete that file and relaunch to get a new one.
+
+### Naming your client
+
+Requests with the owner token must also say who's calling, or they get `400`:
+
+- HTTP: `X-Macapad-Client: Office display` (percent-encode names that aren't plain ASCII)
+- WebSocket: `?client=Office%20display`
+
+Each name shows up in Settings with its own schedule and pause, so one server can call for several screens
+(archersdesk does: one name per screen) and each can keep different hours. Paired devices already have a name, so for
+them it's optional; one that sends it gets a named client under the device, which follows the device's schedule
+unless you pick another.
+
+Add `X-Macapad-Client-Id` (or `?clientId=`), a stable id up to 64 characters, to keep a client's settings when it's
+renamed. Names are matched ignoring case. Each token can have up to 40 named clients.
 
 ## Discovery and pairing
 
@@ -178,7 +194,7 @@ Keys map to physical positions on a US keyboard layout.
 | POST | `/api/pair` | `{"name","app"?}` (no token needed) | `{"id","code","expiresIn","mac"}`; see [pairing](#discovery-and-pairing) |
 | POST | `/api/pair/qr` | `{"key","name","app"?}` (no token needed) | `{"status":"approved","token","device","mac"}`; see [pairing by QR code](#discovery-and-pairing) |
 | GET | `/api/pair/:id?wait=25` | none (no token needed) | `{"status":"pending"\|"approved"\|"denied"\|"expired","token"?,"device"?}` |
-| GET | `/api/me` | none | `{"owner":false,"device":{…},"mac":{…},"off":{…}}`: who your token belongs to; `off` only while it [can't run anything](#paused-and-off-hours) |
+| GET | `/api/me` | none | `{"owner":false,"device":{…},"client":{…},"mac":{…},"off":{…}}`: who your token belongs to and the client you named; `off` only while it [can't run anything](#paused-and-off-hours) |
 | DELETE | `/api/me` | none | `{"ok":true}`: unpairs this device (owner token can't) |
 | POST | `/api/run` | `{"steps":[...]}` | `{"ok":true}` or `{"ok":false,"error":"Step 2: ..."}`; `423` while [paused or off hours](#paused-and-off-hours) |
 | GET | `/api/actions` | none | `{"actions":[...]}`: built-ins, then yours |
@@ -194,21 +210,23 @@ return a 4xx status with `{"error":{"message":"..."}}`.
 ```sh
 curl -X POST http://localhost:7317/api/run \
   -H "Authorization: Bearer $(cat ~/.macapad/token)" \
+  -H "X-Macapad-Client: My script" \
   -H "Content-Type: application/json" \
   -d '{"steps":[{"type":"media","key":"playPause"}]}'
 ```
 
 ### Paused and off hours
 
-While the Mac is paused, the device is paused, or it's outside the device's schedule, `/api/run` runs nothing and returns `423`:
+While the Mac is paused, the device or client is paused, or it's outside its schedule (the client's, or else the
+device's), `/api/run` runs nothing and returns `423`:
 
 ```json
-{ "error": { "message": "Outside Work hours. This device is off until Monday at 9:00 AM" },
+{ "error": { "message": "Outside Work hours. Office display is off until Monday at 9:00 AM" },
   "off": { "reason": "schedule", "until": "2026-10-19T13:00:00Z", "message": "Outside Work hours. …" } }
 ```
 
-`reason` is `mac` (everything is paused; this applies to the owner token too), `device` or `schedule`. `until` is when
-it can run again, taking all three into account; it's missing when it stays off until someone turns it back on.
+`reason` is `mac` (everything is paused), `device` (the device or client is paused) or `schedule`. `until` is when
+it can run again, taking all of them into account; it's missing when it stays off until someone turns it back on.
 `message` is ready to show. `GET /api/me` has the same `off` object, so a frontend can grey out its buttons up front.
 
 ## Actions
@@ -236,7 +254,7 @@ An action is a named list of steps that any request can run with `{"type":"actio
 made from the name. Ids are lowercase letters, numbers and dashes, and can't reuse a built-in id.
 Actions can run other actions, nested up to 4 deep.
 
-## WebSocket: `/api/ws?token=...`
+## WebSocket: `/api/ws?token=...&client=...`
 
 Use this for a frontend that stays open. It's faster than a new HTTP request for every press.
 

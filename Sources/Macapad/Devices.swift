@@ -27,11 +27,12 @@ struct PairedDevice: Codable, Sendable, Identifiable, ResponseEncodable {
     }
 }
 
-/// Who a valid token belongs to.
-enum Caller: Sendable {
-    /// The token in ~/.macapad/token: full access, for scripts and older frontends.
-    case owner
-    case device(PairedDevice)
+/// Who's calling: the paired device a valid token belongs to (nil for the owner token in
+/// ~/.macapad/token), and the client the request named.
+struct Caller: Sendable {
+    var device: PairedDevice?
+    /// Always set for the owner token, which must name its client. A paired device may skip it.
+    var client: Client?
 }
 
 /// Paired devices, saved in ~/.macapad/devices.json.

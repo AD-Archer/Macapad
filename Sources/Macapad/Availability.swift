@@ -1,7 +1,7 @@
 import Foundation
 
 /// Hours a device works, like "Work hours": Monday to Friday, 9 to 5. Saved in settings.json;
-/// each paired device follows one, or none (always on).
+/// each paired device and named client follows one, or none (always on).
 struct Schedule: Codable, Equatable, Sendable, Identifiable {
     var id = String(UUID().uuidString.prefix(8)).lowercased()
     var name = "New schedule"
@@ -75,9 +75,9 @@ struct OffStatus: Codable, Equatable, Sendable {
     enum Reason: String, Codable, Sendable {
         /// Everything on this Mac is paused.
         case mac
-        /// This device is paused.
+        /// This device or client is paused.
         case device
-        /// Outside this device's schedule.
+        /// Outside its schedule.
         case schedule
     }
 
@@ -95,21 +95,22 @@ enum Availability {
         date > Date().addingTimeInterval(100 * 365 * 24 * 3600)
     }
 
-    /// Nil when the caller can run macros now. Pausing the Mac stops the owner token too;
-    /// schedules and device pauses only apply to paired devices.
+    /// Nil when the caller can run macros now. Pausing the Mac stops everyone. A device's or
+    /// client's own pause stops it, and it follows its client's schedule, or else its device's.
     static func check(_ caller: Caller?, settings: MacapadSettings, now: Date = Date()) -> OffStatus? {
-        var device: PairedDevice?
-        if case .device(let d) = caller { device = d }
+        let device = caller?.device
+        let client = caller?.client
 
         let macPause = settings.pausedUntil.flatMap { $0 > now ? $0 : nil }
-        let devicePause = device?.pausedUntil.flatMap { $0 > now ? $0 : nil }
-        let schedule = device?.scheduleId.flatMap { id in settings.schedules.first { $0.id == id } }
+        let ownPause = [device?.pausedUntil, client?.pausedUntil].compactMap { $0 }.filter { $0 > now }.max()
+        let scheduleId = client?.scheduleId ?? device?.scheduleId
+        let schedule = scheduleId.flatMap { id in settings.schedules.first { $0.id == id } }
         let outsideSchedule = schedule.map { !$0.isOpen(at: now) } ?? false
-        guard macPause != nil || devicePause != nil || outsideSchedule else { return nil }
+        guard macPause != nil || ownPause != nil || outsideSchedule else { return nil }
 
         // On again once every pause is over and the schedule is open.
         var until: Date?
-        let pausesEnd = [macPause, devicePause].compactMap { $0 }.max() ?? now
+        let pausesEnd = [macPause, ownPause].compactMap { $0 }.max() ?? now
         if !isIndefinite(pausesEnd) {
             until = schedule.map { $0.nextOpen(after: pausesEnd) } ?? pausesEnd
         }
@@ -120,13 +121,14 @@ enum Availability {
             return OffStatus(reason: .mac, until: until, message: when.map { "\(name) is paused \($0)" }
                 ?? "\(name) is paused. Turn it back on from the Mac’s menu bar.")
         }
-        if devicePause != nil {
-            return OffStatus(reason: .device, until: until, message: when.map { "This device is paused \($0)" }
-                ?? "This device is paused. Turn it back on in Macapad’s settings on the Mac.")
+        let who = client?.name ?? device?.name ?? "This device"
+        if ownPause != nil {
+            return OffStatus(reason: .device, until: until, message: when.map { "\(who) is paused \($0)" }
+                ?? "\(who) is paused. Turn it back on in Macapad’s settings on the Mac.")
         }
-        let name = schedule?.name ?? "Its schedule"
-        return OffStatus(reason: .schedule, until: until, message: when.map { "Outside \(name). This device is off \($0)" }
-            ?? "Outside \(name). This device is off.")
+        let name = schedule?.name ?? "its schedule"
+        return OffStatus(reason: .schedule, until: until, message: when.map { "Outside \(name). \(who) is off \($0)" }
+            ?? "Outside \(name). \(who) is off.")
     }
 
     /// "5:00 PM", "tomorrow at 9:00 AM", "Monday at 9:00 AM" or "Oct 20 at 9:00 AM".

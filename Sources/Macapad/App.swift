@@ -37,6 +37,8 @@ final class AppState: ObservableObject {
     @Published var tailscaleHost: String?
     @Published var settings = SettingsStore.shared.current
     @Published var devices = Devices.shared.all
+    /// Screens, scripts and apps that named themselves with `X-Macapad-Client`.
+    @Published var clients = Clients.shared.all
     @Published var pending: [PairRequest] = []
     /// The key in the QR code while its window is open.
     @Published var qrKey: String?
@@ -92,6 +94,24 @@ final class AppState: ObservableObject {
         Devices.shared.update(device.id) { $0.scheduleId = scheduleId }
     }
 
+    func remove(_ device: PairedDevice) {
+        Devices.shared.remove(device.id)
+        Clients.shared.removeAll(deviceId: device.id)
+    }
+
+    func pause(_ client: Client, until: Date?) {
+        Clients.shared.update(client.id) { $0.pausedUntil = until }
+    }
+
+    func setSchedule(_ client: Client, _ scheduleId: String?) {
+        Clients.shared.update(client.id) { $0.scheduleId = scheduleId }
+    }
+
+    /// Named clients calling with a paired device's token, or with the owner token (nil).
+    func clients(of deviceId: String?) -> [Client] {
+        clients.filter { $0.deviceId == deviceId }
+    }
+
     func saveSchedule(_ schedule: Schedule) {
         SettingsStore.shared.update { settings in
             if let i = settings.schedules.firstIndex(where: { $0.id == schedule.id }) {
@@ -104,14 +124,24 @@ final class AppState: ObservableObject {
 
     func deleteSchedule(_ schedule: Schedule) {
         Devices.shared.clearSchedule(schedule.id)
+        Clients.shared.clearSchedule(schedule.id)
         SettingsStore.shared.update { $0.schedules.removeAll { $0.id == schedule.id } }
     }
 
     /// Why a device is off right now, leaving out a pause of the whole Mac (shown separately).
     func offStatus(_ device: PairedDevice) -> OffStatus? {
+        offStatus(Caller(device: device))
+    }
+
+    /// Why a client is off right now, counting its device's pause and schedule.
+    func offStatus(_ client: Client) -> OffStatus? {
+        offStatus(Caller(device: devices.first { $0.id == client.deviceId }, client: client))
+    }
+
+    private func offStatus(_ caller: Caller) -> OffStatus? {
         var settings = settings
         settings.pausedUntil = nil
-        return Availability.check(.device(device), settings: settings, now: now)
+        return Availability.check(caller, settings: settings, now: now)
     }
 
     func settingsChanged(_ next: MacapadSettings) {
@@ -241,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         SettingsStore.shared.observe { next in Task { @MainActor in state.settingsChanged(next) } }
         Devices.shared.observe { next in Task { @MainActor in state.devices = next } }
+        Clients.shared.observe { next in Task { @MainActor in state.clients = next } }
         Pairing.shared.observe { next in Task { @MainActor in state.pendingChanged(next) } }
         QRPairing.shared.observe { device in Task { @MainActor in state.qrRedeemed(device) } }
         state.startDiscovery()

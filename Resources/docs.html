@@ -216,6 +216,7 @@
 <div class="layout">
   <nav class="toc" id="toc">
     <div class="brand">Macapad</div>
+    <a href="#install">Install</a>
     <a href="#connect">Connect</a>
     <a href="#qr">QR pairing</a>
     <a href="#pairing">Code pairing</a>
@@ -232,6 +233,33 @@
       <p class="lede">Control your Mac from a phone, a tablet, or anything that can make a web request. Pair this browser and every example on this page runs for real.</p>
       <span class="pill"><span class="dot" id="pill-dot"></span><span id="pill">Not connected</span></span>
     </header>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>Macapad is a menu bar app for Apple Silicon Macs on macOS 14 or later. It has no window of its own; frontends on your other devices control it.</p>
+      <h3>With Homebrew</h3>
+      <pre><code>brew tap ad-archer/tap
+brew trust ad-archer/tap        # Homebrew 6+ only loads third-party taps you trust
+brew install --cask macapad
+xattr -dr com.apple.quarantine /Applications/Macapad.app</code></pre>
+      <p>To trust only Macapad instead of the whole tap, use <code>brew trust --cask ad-archer/tap/macapad</code>. Upgrade later with <code>brew upgrade --cask macapad</code>.</p>
+      <p>Or download <code>Macapad.zip</code> from <a href="https://github.com/AD-Archer/Macapad/releases" target="_blank" rel="noopener">Releases</a>, unzip it, move <code>Macapad.app</code> to <code>/Applications</code>, and run the same <code>xattr</code> command.</p>
+      <h3>Why the <code>xattr</code> command?</h3>
+      <p>Macapad isn’t signed with an Apple Developer ID. macOS marks everything downloaded from the internet as quarantined, and refuses to open unsigned quarantined apps, often saying the app “is damaged”. <code>xattr -dr com.apple.quarantine</code> removes that mark from the app and everything inside it. Run it again after each upgrade, and only do this for apps you trust.</p>
+      <h3>First launch</h3>
+      <ol>
+        <li>Open Macapad. A smiling face appears in the menu bar.</li>
+        <li>Allow it in <b>System Settings → Privacy &amp; Security → Accessibility</b>. Media keys, shortcuts and typing need it.</li>
+        <li>After each upgrade, remove Macapad from that list and add it again: an unsigned app looks like a new app to macOS every time it changes.</li>
+      </ol>
+      <h3>Build it yourself</h3>
+      <p>You need Xcode or the Command Line Tools (<code>xcode-select --install</code>) and <a href="https://github.com/casey/just" target="_blank" rel="noopener">just</a> (<code>brew install just</code>).</p>
+      <pre><code>git clone https://github.com/AD-Archer/Macapad.git
+cd Macapad
+just cert      # once: a self-signed "Macapad Dev" identity in your keychain
+just install   # builds, copies to ~/Applications, launches</code></pre>
+      <p><code>just cert</code> lets every build sign with the same identity, so macOS keeps the Accessibility permission across rebuilds. Without it each build counts as a new app. Run <code>just</code> to see the other tasks: <code>just dev</code> runs it straight from source, and <code>just tester</code> serves this page with discovery for testing pairing from your phone.</p>
+    </section>
 
     <section id="connect">
       <h2>Connect</h2>

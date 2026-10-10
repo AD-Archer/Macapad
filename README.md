@@ -40,10 +40,13 @@ time it changes. In System Settings > Privacy & Security > Accessibility, remove
 
 ## Build it yourself
 
-Tasks run through [just](https://github.com/casey/just) (`brew install just`); `just` lists them.
+You need Xcode or the Command Line Tools (`xcode-select --install`). Tasks run through
+[just](https://github.com/casey/just) (`brew install just`); `just` lists them.
 Each one calls a script in `scripts/`, which you can also run directly.
 
 ```sh
+git clone https://github.com/AD-Archer/Macapad.git && cd Macapad
+just cert      # once; see below
 just install   # builds, copies to ~/Applications, launches
 ```
 

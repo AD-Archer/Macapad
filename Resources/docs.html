@@ -68,21 +68,79 @@
     .toc .brand { display: none; }
     .toc a { font-size: 14px; padding: 6px 12px; }
     .doc { padding-top: 20px; }
-    section { scroll-margin-top: 64px; }
+    [id] { scroll-margin-top: 64px; }
   }
 
-  header.top h1 { font-size: 34px; font-weight: 700; letter-spacing: .01em; }
-  .lede { color: var(--dim); margin: 6px 0 14px; max-width: 560px; }
+  .toc-label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #5a5a5e; margin: 18px 10px 4px; }
+  .toc-label:first-of-type { margin-top: 0; }
+  @media (max-width: 820px) { .toc-label { display: none; } }
+
+  /* One page shows at a time; the hash picks it (see the router at the bottom). */
+  .page[hidden] { display: none; }
+  .status-bar { margin-bottom: 20px; }
   .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--dim); background: var(--group); border-radius: 99px; padding: 5px 12px 5px 10px; }
 
-  section { padding-top: 44px; scroll-margin-top: 12px; }
-  section > h2 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-  section > h3, .doc h4 { font-size: 17px; font-weight: 600; margin: 22px 0 6px; }
+  /* :where keeps these weaker than component styles like .error, .needs and .card h3 */
+  :where(.page) h1 { font-size: 34px; font-weight: 700; letter-spacing: .01em; }
+  .lede { color: var(--dim); margin: 6px 0 0; max-width: 620px; font-size: 19px; }
+  :where(.page) h2 { font-size: 22px; font-weight: 700; margin: 40px 0 8px; }
+  :where(.page) h3, :where(.doc) h4 { font-size: 17px; font-weight: 600; margin: 22px 0 6px; }
   .doc h4 { text-transform: capitalize; }
-  section p, section li { color: #d1d1d6; }
-  section p + p { margin-top: 10px; }
-  section ol, section ul { padding-left: 22px; margin: 8px 0; }
-  section li + li { margin-top: 6px; }
+  :where(.page) p, :where(.page) li { color: #d1d1d6; }
+  :where(.page) p + p { margin-top: 10px; }
+  :where(.page) ol, :where(.page) ul { padding-left: 22px; margin: 8px 0; }
+  :where(.page) li + li { margin-top: 8px; }
+  .hint { font-size: 15px; color: var(--dim); margin-top: 8px; }
+  .crumb { display: inline-block; font-size: 15px; margin-bottom: 10px; }
+  [id] { scroll-margin-top: 12px; }
+
+  /* Numbered steps on the first page */
+  .page ol.steps { list-style: none; padding: 0; margin: 32px 0 0; counter-reset: step; }
+  .steps > li { position: relative; padding: 0 0 36px 52px; margin: 0; counter-increment: step; }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-weight: 700; display: grid; place-items: center;
+  }
+  .steps > li:not(:last-child)::after { content: ""; position: absolute; left: 16.5px; top: 44px; bottom: 8px; width: 1px; background: var(--line); }
+  .steps > li > h2 { margin: 3px 0 6px; }
+  @media (max-width: 600px) { .steps > li { padding-left: 46px; } }
+
+  /* A command with a Copy button */
+  .cmd { position: relative; }
+  .cmd pre { padding-right: 84px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .copy { position: absolute; top: 9px; right: 9px; }
+
+  .callout { background: rgba(10, 132, 255, .12); border-radius: 12px; padding: 12px 16px; margin: 16px 0; font-size: 15px; }
+  .callout.warn { background: rgba(255, 214, 10, .12); }
+
+  details { background: var(--group); border-radius: 12px; margin: 12px 0; }
+  summary { position: relative; padding: 12px 40px 12px 16px; cursor: pointer; font-size: 15px; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "›"; position: absolute; right: 16px; top: 12px; color: var(--dim); transition: transform .15s; }
+  details[open] summary::after { transform: rotate(90deg); }
+  details > :not(summary) { margin-left: 16px; margin-right: 16px; }
+  details > :last-child { margin-bottom: 14px; }
+  details p, details li { font-size: 15px; }
+  details pre { margin-top: 4px; }
+
+  .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 56px; }
+  .pager a { background: var(--group); border-radius: 14px; padding: 12px 16px; color: var(--text); min-height: 44px; }
+  .pager a:hover { background: var(--raised); }
+  .pager small { display: block; font-size: 13px; color: var(--dim); }
+  .pager .next { grid-column: 2; text-align: right; }
+
+  .foot {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px;
+    margin-top: 40px; padding-top: 18px; border-top: .5px solid var(--line);
+    font-size: 14px; color: var(--dim);
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+  .tile { display: block; background: var(--group); border-radius: 14px; padding: 14px 16px; color: var(--text); }
+  .tile:hover { background: var(--raised); }
+  .tile b { display: block; }
+  .tile span { color: var(--dim); font-size: 14px; }
 
   code { font: 14px/1.4 var(--mono); background: var(--group); border-radius: 6px; padding: 1px 5px; color: var(--text); overflow-wrap: anywhere; }
   pre {
@@ -97,6 +155,7 @@
   th { color: var(--dim); font-weight: 400; font-size: 13px; text-transform: uppercase; letter-spacing: .02em; }
   tr + tr td { border-top: .5px solid var(--line); }
   td code { background: var(--raised); }
+  #steps-table td:first-child code { white-space: nowrap; overflow-wrap: normal; }
   td.go { width: 1%; white-space: nowrap; text-align: right; }
 
   /* Phones: one row becomes a small stacked block, with its Try button top-right. */
@@ -216,10 +275,11 @@
 <div class="layout">
   <nav class="toc" id="toc">
     <div class="brand">Macapad</div>
-    <a href="#install">Install</a>
-    <a href="#connect">Connect</a>
-    <a href="#qr">QR pairing</a>
-    <a href="#pairing">Code pairing</a>
+    <p class="toc-label">Use it</p>
+    <a href="#start">Get started</a>
+    <a href="#homebrew">Homebrew &amp; more</a>
+    <p class="toc-label">Build a client</p>
+    <a href="#pairing">Pairing</a>
     <a href="#steps">Steps</a>
     <a href="#actions">Actions</a>
     <a href="#api">HTTP API</a>
@@ -228,80 +288,163 @@
   </nav>
 
   <main class="doc">
-    <header class="top">
+    <div class="status-bar"><span class="pill"><span class="dot" id="pill-dot"></span><span id="pill">Not connected</span></span></div>
+
+    <!-- ---------- Get started ---------- -->
+    <section class="page" id="start">
       <h1>Macapad</h1>
-      <p class="lede">Control your Mac from a phone, a tablet, or anything that can make a web request. Pair this browser and every example on this page runs for real.</p>
-      <span class="pill"><span class="dot" id="pill-dot"></span><span id="pill">Not connected</span></span>
-    </header>
+      <p class="lede">Control your Mac from your phone, a tablet, or a screen on the wall.</p>
 
-    <section id="install">
-      <h2>Install</h2>
-      <p>Macapad is a menu bar app for Apple Silicon Macs on macOS 14 or later. It has no window of its own; frontends on your other devices control it.</p>
-      <h3>With Homebrew</h3>
-      <pre><code>brew tap ad-archer/tap
-brew trust ad-archer/tap        # Homebrew 6+ only loads third-party taps you trust
-brew install --cask macapad
-xattr -dr com.apple.quarantine /Applications/Macapad.app</code></pre>
-      <p>To trust only Macapad instead of the whole tap, use <code>brew trust --cask ad-archer/tap/macapad</code>. Upgrade later with <code>brew upgrade --cask macapad</code>.</p>
-      <p>Or download <code>Macapad.zip</code> from <a href="https://github.com/AD-Archer/Macapad/releases" target="_blank" rel="noopener">Releases</a>, unzip it, move <code>Macapad.app</code> to <code>/Applications</code>, and run the same <code>xattr</code> command.</p>
-      <h3>Why the <code>xattr</code> command?</h3>
-      <p>Macapad isn’t signed with an Apple Developer ID. macOS marks everything downloaded from the internet as quarantined, and refuses to open unsigned quarantined apps, often saying the app “is damaged”. <code>xattr -dr com.apple.quarantine</code> removes that mark from the app and everything inside it. Run it again after each upgrade, and only do this for apps you trust.</p>
-      <h3>First launch</h3>
-      <ol>
-        <li>Open Macapad. A smiling face appears in the menu bar.</li>
-        <li>Allow it in <b>System Settings → Privacy &amp; Security → Accessibility</b>. Media keys, shortcuts and typing need it.</li>
-        <li>After each upgrade, remove Macapad from that list and add it again: an unsigned app looks like a new app to macOS every time it changes.</li>
+      <ol class="steps">
+        <li id="install">
+          <h2>Install it</h2>
+          <p>Paste this into Terminal on your Mac.</p>
+          <div class="cmd"><pre><code>curl -fsSL https://raw.githubusercontent.com/AD-Archer/Macapad/main/scripts/install.sh | bash</code></pre></div>
+          <p class="hint">Takes a few minutes the first time. Run it again any time to update.</p>
+          <details>
+            <summary>What does it do?</summary>
+            <p>It downloads the latest release, builds it on your Mac, and puts it in Applications. Because your Mac built it, macOS opens it with no warnings and keeps its permissions when you update.</p>
+            <p>It needs Apple’s Command Line Tools. If you don’t have them, their installer opens. Finish it, then run the command again.</p>
+          </details>
+          <p class="hint">Needs an Apple Silicon Mac on macOS 14 or later. <a href="#homebrew">Rather use Homebrew or a download?</a></p>
+        </li>
+        <li id="accessibility">
+          <h2>Let it press keys</h2>
+          <p>A smiling face appears in the menu bar. Then open <b>System Settings → Privacy &amp; Security → Accessibility</b> and turn on Macapad.</p>
+        </li>
+        <li id="connect">
+          <h2>Connect a device</h2>
+          <p>Pick a Mac. You’ll confirm on the Mac.</p>
+          <div class="card" id="app"></div>
+        </li>
       </ol>
-      <h3>Build it yourself</h3>
-      <p>You need Xcode or the Command Line Tools (<code>xcode-select --install</code>) and <a href="https://github.com/casey/just" target="_blank" rel="noopener">just</a> (<code>brew install just</code>).</p>
-      <pre><code>git clone https://github.com/AD-Archer/Macapad.git
+
+      <div class="callout warn">Keep Macapad on your home network or your tailnet. Don’t put it on the internet.</div>
+
+      <h2>Apps for it</h2>
+      <div class="tiles">
+        <a class="tile" href="https://github.com/AD-Archer/archersdesk" target="_blank" rel="noopener"><b>archersdesk</b><span>A dashboard for wall screens, tablets and phones</span></a>
+        <a class="tile" href="https://github.com/AD-Archer/3ds-macapad" target="_blank" rel="noopener"><b>3ds-macapad</b><span>A Nintendo 3DS app</span></a>
+        <a class="tile" href="#pairing"><b>Make your own</b><span>Pair, then send steps over HTTP</span></a>
+      </div>
+    </section>
+
+    <!-- ---------- Homebrew & more ---------- -->
+    <section class="page" id="homebrew" hidden>
+      <a class="crumb" href="#start">‹ Get started</a>
+      <h1>Other ways to install</h1>
+      <p class="lede">The <a href="#install">one command</a> is easiest. These work too, with one extra step.</p>
+
+      <h2>Homebrew</h2>
+      <div class="cmd"><pre><code>brew tap ad-archer/tap
+brew trust ad-archer/tap
+brew install --cask macapad
+xattr -dr com.apple.quarantine /Applications/Macapad.app</code></pre></div>
+      <p class="hint">To update: <code>brew upgrade --cask macapad</code>, then the <code>xattr</code> line again.</p>
+      <details>
+        <summary>Why <code>brew trust</code>?</summary>
+        <p>Homebrew 6 and later only load taps you trust. To trust only Macapad instead of the whole tap:</p>
+        <pre><code>brew trust --cask ad-archer/tap/macapad</code></pre>
+      </details>
+
+      <h2>Download</h2>
+      <ol>
+        <li>Download <code>Macapad.zip</code> from <a href="https://github.com/AD-Archer/Macapad/releases" target="_blank" rel="noopener">Releases</a>.</li>
+        <li>Unzip it and drag <code>Macapad.app</code> to Applications.</li>
+        <li>Run this in Terminal:</li>
+      </ol>
+      <div class="cmd"><pre><code>xattr -dr com.apple.quarantine /Applications/Macapad.app</code></pre></div>
+
+      <div class="callout">
+        <p><b>After every update</b>, open System Settings → Privacy &amp; Security → Accessibility, remove Macapad, and add it again.</p>
+        <p>macOS sees each new download as a different app. The one command doesn’t have this problem.</p>
+      </div>
+      <details>
+        <summary>Why the <code>xattr</code> line?</summary>
+        <p>Macapad isn’t signed with an Apple Developer ID. macOS marks downloads as quarantined and won’t open an unsigned one, often saying it “is damaged”. This line removes that mark. Only do it for apps you trust.</p>
+      </details>
+
+      <h2>Build it yourself</h2>
+      <p>You need the Command Line Tools (<code>xcode-select --install</code>) and <a href="https://github.com/casey/just" target="_blank" rel="noopener">just</a> (<code>brew install just</code>).</p>
+      <div class="cmd"><pre><code>git clone https://github.com/AD-Archer/Macapad.git
 cd Macapad
-just cert      # once: a self-signed "Macapad Dev" identity in your keychain
-just install   # builds, copies to ~/Applications, launches</code></pre>
-      <p><code>just cert</code> lets every build sign with the same identity, so macOS keeps the Accessibility permission across rebuilds. Without it each build counts as a new app. Run <code>just</code> to see the other tasks: <code>just dev</code> runs it straight from source, and <code>just tester</code> serves this page with discovery for testing pairing from your phone.</p>
+just cert      # once
+just install</code></pre></div>
+      <details>
+        <summary>What does <code>just cert</code> do?</summary>
+        <p>It adds a self-signed “Macapad Dev” certificate to your keychain. Every build signs with it, so macOS keeps the Accessibility permission across rebuilds.</p>
+        <p>Run <code>just</code> to see the other tasks. <code>just dev</code> runs from source, and <code>just tester</code> serves this page with discovery.</p>
+      </details>
+      <details>
+        <summary>Try code that isn’t released yet</summary>
+        <p>The one command can build any branch or tag:</p>
+        <div class="cmd"><pre><code>curl -fsSL https://raw.githubusercontent.com/AD-Archer/Macapad/main/scripts/install.sh | MACAPAD_REF=main bash</code></pre></div>
+      </details>
     </section>
 
-    <section id="connect">
-      <h2>Connect</h2>
-      <p>Pick a Mac to pair with. You’ll confirm on the Mac, then this browser keeps its own token.</p>
-      <div class="card" id="app"></div>
-    </section>
+    <!-- ---------- Pairing ---------- -->
+    <section class="page" id="pairing" hidden>
+      <h1>Pairing</h1>
+      <p class="lede">How a device gets its own token. Use a QR code if it has a camera, or a 4-digit code if not.</p>
 
-    <section id="qr">
-      <h2>QR pairing</h2>
-      <p>In Macapad’s menu bar, choose <b>Pair with QR Code…</b>. An app with a camera scans it and is paired straight away, with no prompt on the Mac: being able to see the screen is the proof. Each code works once, and only while that window is open.</p>
-      <p>The code holds a link with everything needed to connect:</p>
-      <pre><code>macapad://pair?v=1&amp;id=&lt;mac id&gt;&amp;name=&lt;mac name&gt;&amp;key=&lt;one-time key&gt;
+      <h2 id="qr">With a QR code</h2>
+      <p>No prompt on the Mac: seeing its screen is the proof.</p>
+      <ol>
+        <li>On the Mac, choose <b>Pair with QR Code…</b> in the menu bar.</li>
+        <li>Scan it. It holds a link:
+          <pre><code>macapad://pair?v=1&amp;id=&lt;mac id&gt;&amp;name=&lt;mac name&gt;&amp;key=&lt;one-time key&gt;
   &amp;url=http://192.168.1.20:7317
-  &amp;url=http://100.101.102.103:7317</code></pre>
-      <p>There’s one <code>url</code> per address the Mac can be reached at, best first (local network, then Tailscale). Values are percent-encoded (except <code>:</code> and <code>/</code>), so any URL parser reads them back. Use the first <code>url</code> that answers <code>GET /api/health</code>, then trade the key for a token:</p>
-      <pre><code>POST &lt;url&gt;/api/pair/qr
+  &amp;url=http://100.101.102.103:7317</code></pre></li>
+        <li>Try each <code>url</code> in order and use the first that answers <code>GET /api/health</code>.</li>
+        <li>Trade the key for a token:
+          <pre><code>POST &lt;url&gt;/api/pair/qr
 {"key": "&lt;one-time key&gt;", "name": "Kitchen iPad", "app": "archersdesk"}
 
-→ {"status": "approved", "token": "…", "device": {…}, "mac": {"id": "…", "name": "…"}}</code></pre>
-      <p>The token is shown once, so keep it. A key that was already used or has expired gets <code>410</code>. To pair this browser from a QR code, use <b>Scan a QR code</b> above (needs HTTPS or localhost for the camera) or paste the link from the window’s <b>Copy Pairing Link</b> button into <b>Type an address</b>.</p>
-    </section>
+→ {"status": "approved", "token": "…", "device": {…}, "mac": {"id": "…", "name": "…"}}</code></pre></li>
+      </ol>
+      <div class="callout">Each code works once, and only while its window is open. A used or expired key gets <code>410</code>. The token is only sent once, so save it.</div>
+      <details>
+        <summary>More about the link</summary>
+        <p>There’s one <code>url</code> per address the Mac has, best first: local network, then Tailscale. Values are percent-encoded (except <code>:</code> and <code>/</code>), so any URL parser reads them back.</p>
+        <p>To pair this browser from one: <a href="#connect">Scan a QR code</a> (needs HTTPS or localhost for the camera), or paste the link from <b>Copy Pairing Link</b> into <b>Type an address</b>.</p>
+      </details>
 
-    <section id="pairing">
-      <h2>Code pairing</h2>
-      <p>For devices without a camera. The Mac asks before allowing anything.</p>
+      <h2 id="code">With a code</h2>
+      <p>The Mac asks before allowing anything.</p>
       <ol>
-        <li><code>POST /api/pair</code> with <code>{"name": "Kitchen iPad", "app": "archersdesk"}</code>. You get <code>{"id", "code", "expiresIn", "mac"}</code>. Show the 4-digit <code>code</code> to the person.</li>
-        <li>The Mac shows the device’s name and the same code, with Allow and Don’t Allow.</li>
+        <li><code>POST /api/pair</code> with <code>{"name": "Kitchen iPad", "app": "archersdesk"}</code>. You get <code>{"id", "code", "expiresIn", "mac"}</code>.</li>
+        <li>Show the 4-digit <code>code</code>. The Mac shows the same code with Allow and Don’t Allow.</li>
         <li>Poll <code>GET /api/pair/&lt;id&gt;?wait=25</code>. Each call waits up to 25 seconds, then returns <code>pending</code>, <code>approved</code> (with <code>token</code> and <code>device</code>), <code>denied</code> or <code>expired</code>.</li>
       </ol>
-      <p>Requests expire after two minutes. A device can only have one waiting at a time, and the Mac holds at most three.</p>
-      <h3>Finding Macs</h3>
-      <p>On the local network Macapad advertises <code>_macapad._tcp</code> over Bonjour, with <code>id</code>, <code>name</code> and <code>v</code> in its TXT record. Tailscale has no multicast: list your devices with <code>tailscale status --json</code> and call <code>/api/health</code> on each. A Mac that lets devices find it answers with a <code>mac</code> field. The same Mac found both ways has the same <code>mac.id</code>.</p>
+      <div class="callout">Requests expire after two minutes. A device can have one waiting at a time, and the Mac holds at most three.</div>
+
+      <h2 id="finding">Finding Macs</h2>
+      <ul>
+        <li><b>Same Wi-Fi:</b> Bonjour, <code>_macapad._tcp</code>. The TXT record has <code>id</code>, <code>name</code> and <code>v</code>.</li>
+        <li><b>Tailscale:</b> no Bonjour there. List devices with <code>tailscale status --json</code> and call <code>/api/health</code> on each. A Mac you can pair with answers with a <code>mac</code> field.</li>
+      </ul>
+      <p class="hint">The same Mac found both ways has the same <code>mac.id</code>.</p>
     </section>
 
-    <section id="steps">
-      <h2>Steps</h2>
-      <p>Everything the Mac can do is a step, written as <code>{"type": …}</code>. A request runs a list of steps in order and stops at the first one that fails.</p>
+    <!-- ---------- Steps ---------- -->
+    <section class="page" id="steps" hidden>
+      <h1>Steps</h1>
+      <p class="lede">Everything the Mac can do is a step, like <code>{"type": "media", "key": "next"}</code>. A request runs a list of them in order and stops at the first that fails.</p>
       <div class="table-wrap"><table id="steps-table"></table></div>
       <p class="needs"><a href="#connect">Pair with a Mac</a> to try these.</p>
-      <p><code>keystroke</code> takes modifiers (<code>cmd</code> <code>shift</code> <code>opt</code>/<code>alt</code> <code>ctrl</code> <code>fn</code>) plus one key: <code>a</code>–<code>z</code>, <code>0</code>–<code>9</code>, punctuation, <code>f1</code>–<code>f20</code>, arrows (<code>left</code> <code>right</code> <code>up</code> <code>down</code>), <code>space</code> <code>return</code> <code>tab</code> <code>esc</code> <code>delete</code> <code>forwarddelete</code> <code>home</code> <code>end</code> <code>pageup</code> <code>pagedown</code>. Keys are positions on a US keyboard. <code>media</code> steps are real media-key presses, so they control whatever is playing.</p>
-      <h3>Run your own</h3>
+      <details>
+        <summary>Key names for <code>keystroke</code></summary>
+        <p>Any modifiers (<code>cmd</code> <code>shift</code> <code>opt</code>/<code>alt</code> <code>ctrl</code> <code>fn</code>) plus one key:</p>
+        <ul>
+          <li><code>a</code>–<code>z</code>, <code>0</code>–<code>9</code>, punctuation, <code>f1</code>–<code>f20</code></li>
+          <li><code>left</code> <code>right</code> <code>up</code> <code>down</code></li>
+          <li><code>space</code> <code>return</code> <code>tab</code> <code>esc</code> <code>delete</code> <code>forwarddelete</code> <code>home</code> <code>end</code> <code>pageup</code> <code>pagedown</code></li>
+        </ul>
+        <p>Keys are positions on a US keyboard.</p>
+      </details>
+      <p class="hint"><code>media</code> steps are real media-key presses, so they control whatever is playing.</p>
+
+      <h2>Run your own</h2>
       <textarea id="playground" spellcheck="false" autocapitalize="off" autocorrect="off">[
   {"type": "media", "key": "playPause"}
 ]</textarea>
@@ -311,37 +454,49 @@ just install   # builds, copies to ~/Applications, launches</code></pre>
       </div>
     </section>
 
-    <section id="actions">
-      <h2>Actions</h2>
-      <p>An action is a named list of steps. Run one with <code>{"type": "action", "id": "reload"}</code>. Macapad has built-ins for media, the system, windows, browsers and editing, and you can save your own with <code>POST /api/actions</code> (stored in <code>~/.macapad/actions.json</code>). Ids are lowercase letters, numbers and dashes. Actions can run other actions, up to 4 deep.</p>
+    <!-- ---------- Actions ---------- -->
+    <section class="page" id="actions" hidden>
+      <h1>Actions</h1>
+      <p class="lede">A named list of steps. Run one with <code>{"type": "action", "id": "reload"}</code>.</p>
       <pre><code>{"id": "reload", "name": "Reload", "icon": "refresh", "category": "browser",
  "steps": [{"type": "keystroke", "keys": "cmd+r"}], "custom": false}</code></pre>
-      <p><code>icon</code> is a <a href="https://fonts.google.com/icons" target="_blank" rel="noopener">Material Symbols</a> name, a hint for frontends.</p>
-      <h3>On your Mac</h3>
+      <ul>
+        <li>Built-ins cover media, the system, windows, browsers and editing.</li>
+        <li>Save your own with <code>POST /api/actions</code>. They’re kept in <code>~/.macapad/actions.json</code>.</li>
+        <li>Ids use lowercase letters, numbers and dashes.</li>
+        <li>Actions can run other actions, up to 4 deep.</li>
+        <li><code>icon</code> is a <a href="https://fonts.google.com/icons" target="_blank" rel="noopener">Material Symbols</a> name, a hint for frontends.</li>
+      </ul>
+      <h2>On your Mac</h2>
       <div id="action-list"><p class="needs"><a href="#connect">Pair with a Mac</a> to see its actions and tap one to run it.</p></div>
     </section>
 
-    <section id="api">
-      <h2>HTTP API</h2>
-      <p>Send the token as <code>Authorization: Bearer &lt;token&gt;</code>. Health and pairing don’t need one. Bad requests return a 4xx with <code>{"error": {"message": "…"}}</code>.</p>
+    <!-- ---------- HTTP API ---------- -->
+    <section class="page" id="api" hidden>
+      <h1>HTTP API</h1>
+      <p class="lede">Send your token as <code>Authorization: Bearer &lt;token&gt;</code>. Health and pairing don’t need one.</p>
       <div class="table-wrap"><table id="api-table"></table></div>
       <p class="needs"><a href="#connect">Pair with a Mac</a> to try the GET routes.</p>
       <pre class="out" id="api-out" hidden></pre>
-      <pre><code>curl -X POST http://localhost:7317/api/run \
+      <p class="hint">Errors are a 4xx with <code>{"error": {"message": "…"}}</code>.</p>
+      <h2>From a script</h2>
+      <div class="cmd"><pre><code>curl -X POST http://localhost:7317/api/run \
   -H "Authorization: Bearer $(cat ~/.macapad/token)" \
   -H "X-Macapad-Client: My script" \
   -H "Content-Type: application/json" \
-  -d '{"steps":[{"type":"media","key":"playPause"}]}'</code></pre>
+  -d '{"steps":[{"type":"media","key":"playPause"}]}'</code></pre></div>
     </section>
 
-    <section id="websocket">
-      <h2>WebSocket</h2>
-      <p>For a frontend that stays open, <code>/api/ws?token=&lt;token&gt;</code> is quicker than a request per press. Browsers can’t set headers on a WebSocket, so the token goes in the URL, and so does your client name (<code>&amp;client=&lt;name&gt;</code>) if you send one.</p>
-      <ul>
-        <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get back <code>{"type": "result", "ref", "ok", "error", "off"?}</code>. <code>off</code> is there when nothing ran because you’re paused or outside your schedule.</li>
-        <li>Send <code>{"type": "ping"}</code> every ~25 seconds so proxies don’t close the connection. You get <code>{"type": "pong"}</code>.</li>
-      </ul>
-      <p>If a device is removed in Settings, its open connection closes the next time it sends anything.</p>
+    <!-- ---------- WebSocket ---------- -->
+    <section class="page" id="websocket" hidden>
+      <h1>WebSocket</h1>
+      <p class="lede">For a frontend that stays open. Quicker than a request per press.</p>
+      <ol>
+        <li>Connect to <code>/api/ws?token=&lt;token&gt;</code>. Add <code>&amp;client=&lt;name&gt;</code> if you name your client. (Browsers can’t set headers here.)</li>
+        <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get <code>{"type": "result", "ref", "ok", "error", "off"?}</code>.</li>
+        <li>Send <code>{"type": "ping"}</code> about every 25 seconds so proxies keep it open. You get <code>{"type": "pong"}</code>.</li>
+      </ol>
+      <div class="callout"><code>off</code> means nothing ran because you’re paused or outside your schedule. If the device is removed in Settings, the connection closes the next time it sends anything.</div>
       <pre><code>const ws = new WebSocket(`${base.replace(/^http/, "ws")}/api/ws?token=${token}`);
 ws.onmessage = (e) =&gt; {
   const msg = JSON.parse(e.data);
@@ -357,25 +512,48 @@ ws.onopen = () =&gt; {
       <p class="needs"><a href="#connect">Pair with a Mac</a> to try it.</p>
     </section>
 
-    <section id="networks">
-      <h2>Networks &amp; tokens</h2>
+    <!-- ---------- Networks & tokens ---------- -->
+    <section class="page" id="networks" hidden>
+      <h1>Networks &amp; tokens</h1>
+      <p class="lede">Where to reach the Mac from, and which token to use.</p>
+
+      <h2>Addresses</h2>
       <div class="table-wrap"><table>
         <tr><th>From</th><th>Base URL</th></tr>
         <tr><td>Same Wi-Fi</td><td><code>http://&lt;mac-name&gt;.local:7317</code> or <code>http://&lt;lan-ip&gt;:7317</code></td></tr>
         <tr><td>Your tailnet</td><td><code>http://&lt;tailscale-ip&gt;:7317</code></td></tr>
         <tr><td>Tailnet over HTTPS</td><td><code>https://&lt;mac&gt;.&lt;tailnet&gt;.ts.net</code> after <code>tailscale serve --bg 7317</code></td></tr>
       </table></div>
-      <p>A page served over <code>https://</code> has to call the HTTPS address. Browsers block HTTPS pages from calling plain <code>http</code> addresses.</p>
-      <p>Macapad’s Settings choose which networks may connect and which may find the Mac and pair. Programs on the Mac itself are always allowed; anything else from a network that’s turned off gets <code>403</code>. Pairing is never allowed from the internet.</p>
-      <h3>Tokens</h3>
+      <div class="callout">A page on <code>https://</code> must use the HTTPS address. Browsers block HTTPS pages from calling <code>http://</code>.</div>
+      <p>Macapad’s Settings choose which networks may connect and which may pair.</p>
       <ul>
-        <li><b>Device tokens</b> come from pairing. Each device has its own, and removing one in Settings cuts off only that device.</li>
-        <li><b>The owner token</b> is in <code>~/.macapad/token</code> (menu bar: Copy API Token), for scripts and frontends set up by hand. It has full access.</li>
+        <li>Programs on the Mac itself are always allowed.</li>
+        <li>Anything from a network that’s turned off gets <code>403</code>.</li>
+        <li>Pairing is never allowed from the internet.</li>
       </ul>
-      <h3>Naming your client</h3>
-      <p>Requests with the owner token must say who’s calling with <code>X-Macapad-Client: Office display</code> (or <code>?client=</code> on the WebSocket), or they get <code>400</code>. Percent-encode names that aren’t plain ASCII. Each name shows up in Macapad’s Settings with its own schedule and pause, so one server can call for several screens and each can keep different hours.</p>
-      <p>Paired devices already have a name, so for them it’s optional. One that sends it gets a named client under the device, which follows the device’s schedule unless you pick another. Add <code>X-Macapad-Client-Id</code> (or <code>?clientId=</code>), a stable id, to keep a client’s settings when it’s renamed.</p>
+
+      <h2 id="tokens">Tokens</h2>
+      <ul>
+        <li><b>Device tokens</b> come from <a href="#pairing">pairing</a>. Each device has its own. Removing one in Settings cuts off only that device.</li>
+        <li><b>The owner token</b> is in <code>~/.macapad/token</code> (menu bar: Copy API Token). It has full access. Use it for scripts and hand-set-up frontends.</li>
+      </ul>
+
+      <h2 id="naming">Naming your client</h2>
+      <p>With the owner token, say who’s calling, or you get <code>400</code>:</p>
+      <pre><code>X-Macapad-Client: Office display</code></pre>
+      <p class="hint">On the WebSocket, use <code>?client=</code>. Percent-encode names that aren’t plain ASCII.</p>
+      <p>Each name shows up in Settings with its own schedule and pause, so one server can drive several screens with different hours.</p>
+      <details>
+        <summary>Paired devices and client ids</summary>
+        <p>Paired devices already have a name, so naming is optional. One that sends it gets a named client under the device, which follows the device’s schedule unless you pick another.</p>
+        <p>Add <code>X-Macapad-Client-Id</code> (or <code>?clientId=</code>), a stable id, to keep a client’s settings when it’s renamed.</p>
+      </details>
     </section>
+
+    <footer class="foot">
+      <a href="https://github.com/AD-Archer/Macapad" target="_blank" rel="noopener">Macapad on GitHub</a>
+      <span>Made by <a href="https://github.com/AD-Archer" target="_blank" rel="noopener">ad-archer</a></span>
+    </footer>
   </main>
 </div>
 
@@ -1016,17 +1194,55 @@ document.getElementById("ws-test").onclick = () => {
   ws.onerror = () => { clearTimeout(timer); done(false, "The connection failed."); };
 };
 
-// ---------- table of contents: highlight the section on screen ----------
+// ---------- pages: the hash picks which one shows ----------
 
+// One file, so Macapad, the tester and GitHub Pages all serve it as is. A hash can name a page
+// (#api) or anything inside one (#connect), which shows that page and scrolls to it.
+const pages = [...document.querySelectorAll(".page")];
 const tocLinks = [...document.querySelectorAll(".toc a")];
-const spy = new IntersectionObserver((entries) => {
-  for (const entry of entries) {
-    if (!entry.isIntersecting) continue;
-    tocLinks.forEach((a) => a.classList.toggle("here", a.hash === `#${entry.target.id}`));
-    document.querySelector(".toc a.here")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
-}, { rootMargin: "-20% 0px -70% 0px" });
-document.querySelectorAll("main section").forEach((s) => spy.observe(s));
+
+// Previous / Next at the bottom of each page, in the sidebar's order.
+pages.forEach((page, i) => {
+  const link = (p, dir) => p ? `<a class="${dir}" href="#${p.id}"><small>${dir === "prev" ? "‹ Previous" : "Next ›"}</small>${tocLinks.find((a) => a.hash === `#${p.id}`).innerHTML}</a>` : "";
+  page.insertAdjacentHTML("beforeend", `<nav class="pager">${link(pages[i - 1], "prev")}${link(pages[i + 1], "next")}</nav>`);
+});
+
+function showPage() {
+  let target = null;
+  try { target = location.hash.length > 1 && document.getElementById(decodeURIComponent(location.hash.slice(1))); } catch {}
+  const page = target?.closest(".page") ?? pages[0];
+  pages.forEach((p) => p.hidden = p !== page);
+  tocLinks.forEach((a) => a.classList.toggle("here", a.hash === `#${page.id}`));
+  document.querySelector(".toc a.here")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (target && target !== page) target.scrollIntoView();
+  else window.scrollTo(0, 0);
+}
+addEventListener("hashchange", showPage);
+showPage();
+
+// ---------- copy buttons on commands ----------
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  // navigator.clipboard needs HTTPS; the Mac serves this page over plain http
+  const t = Object.assign(document.createElement("textarea"), { value: text });
+  document.body.append(t);
+  t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  return ok;
+}
+
+document.querySelectorAll(".cmd").forEach((box) => {
+  const button = Object.assign(document.createElement("button"), { className: "try copy", textContent: "Copy" });
+  button.onclick = async () => {
+    const ok = await copyText(box.querySelector("code").textContent);
+    button.textContent = ok ? "Copied" : "Select it";
+    flash(button, ok);
+    setTimeout(() => button.textContent = "Copy", 1500);
+  };
+  box.append(button);
+});
 
 // ---------- start: reconnect to the last Mac, or look for one ----------
 

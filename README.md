@@ -7,10 +7,24 @@
 A menu bar app that lets other devices control your Mac: media keys, keyboard shortcuts, opening apps and URLs,
 running Shortcuts and AppleScript. Can be used by a client over http
 
-<p align="center">
-  <img src="assets/image.png" alt="archersdesk: a pad of eight keys on a black screen: volume down, volume up, previous, next, play/pause, mute, and app icons for Supersonic and Firefox Developer Edition" height="280">
-  <img src="https://github.com/AD-Archer/3ds-macapad/raw/main/screenshots/dashboard.png" alt="3ds-macapad: the time and weather, a now playing card, CPU, memory, battery and disk tiles, and a page of media and system buttons" height="280">
-</p>
+<div align="center">
+<table>
+  <tr>
+    <td align="center">
+      <img src="assets/image.png" alt="archersdesk: a pad of eight keys on a black screen: volume down, volume up, previous, next, play/pause, mute, and app icons for Supersonic and Firefox Developer Edition" height="160"><br>
+      <a href="https://github.com/AD-Archer/archersdesk"><b>archersdesk</b></a>
+    </td>
+    <td align="center">
+      <img src="https://github.com/AD-Archer/vita-macapad/raw/main/screenshots/dashboard.png" alt="vita-macapad: the time and date, the weather, the song playing on the Mac with its artwork, progress and play controls, and the Mac's CPU, memory, battery and disk" height="160"><br>
+      <a href="https://github.com/AD-Archer/vita-macapad"><b>vita-macapad</b></a>
+    </td>
+    <td align="center">
+      <img src="https://github.com/AD-Archer/3ds-macapad/raw/main/screenshots/dashboard.png" alt="3ds-macapad: the time and weather, a now playing card, CPU, memory, battery and disk tiles, and a page of media and system buttons" height="160"><br>
+      <a href="https://github.com/AD-Archer/3ds-macapad"><b>3ds-macapad</b></a>
+    </td>
+  </tr>
+</table>
+</div>
 
 ## Install
 
@@ -28,7 +42,8 @@ Homebrew and other ways: [docs/install.md](docs/install.md).
 
 ## Clients(as of right now)
 
-- [archersdesk](https://github.com/AD-Archer/archersdesk): a web dashboard for wall screens, tablets and phones (left).
+- [archersdesk](https://github.com/AD-Archer/archersdesk): a web dashboard for wall screens, tablets and phones.
+- [vita-macapad](https://github.com/AD-Archer/vita-macapad): a PlayStation Vita app.
 - [3ds-macapad](https://github.com/AD-Archer/3ds-macapad): a Nintendo 3DS app.
 
 ## Docs

@@ -52,7 +52,7 @@ renamed. Names are matched ignoring case. Each token can have up to 40 named cli
 | DELETE | `/api/actions/:id` | none | `{"ok":true}`; built-ins can't be deleted |
 | GET | `/api/apps` | none | `{"apps":[{"name","bundleId","path"}]}` |
 | GET | `/api/apps/icon?bundleId=…&size=128` | none | the app's icon as a PNG (16–512 px) |
-| GET | `/api/web/icon?host=github.com&size=128` | none | the website's icon as a PNG (16–512 px); `204` when it has none |
+| GET | `/api/web/icon?host=github.com&size=128` | none | the website's icon as a PNG (16–512 px): what its front page declares (apple-touch-icon, `rel=icon`, `og:image`), else `/favicon.ico`; `204` when it has none |
 | GET | `/api/shortcuts` | none | `{"shortcuts":["name", …]}` from the Shortcuts app |
 | GET | `/api/status` | none | what the Mac is doing now; see [Status](#status) |
 | GET | `/api/status/artwork?size=256` | none | the playing track's artwork as a PNG (16–512 px); `404` when there is none |

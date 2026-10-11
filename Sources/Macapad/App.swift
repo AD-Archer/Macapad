@@ -52,6 +52,7 @@ final class AppState: ObservableObject {
     @Published var pausePrompt: PausePrompt?
     /// The schedule open in Settings' editor sheet.
     @Published var editingSchedule: EditingSchedule?
+    @Published var update: UpdateState = .idle
 
     var token: String?
     let windows = Windows()
@@ -250,6 +251,39 @@ final class AppState: ObservableObject {
         openAtLogin = SMAppService.mainApp.status == .enabled
     }
 
+    /// Asks GitHub for the latest release. Does nothing under `swift run` or while one is installing.
+    func checkForUpdates() {
+        guard let current = Updates.current else { return }
+        switch update {
+        case .checking, .installing: return
+        default: break
+        }
+        update = .checking
+        Task {
+            guard let latest = try? await Updates.latest() else {
+                update = .checkFailed
+                return
+            }
+            guard Updates.isNewer(latest, than: current) else {
+                update = .upToDate
+                return
+            }
+            update = .available(latest)
+            if settings.installUpdates, Updates.method == .installer { installUpdate(latest) }
+        }
+    }
+
+    func installUpdate(_ version: String) {
+        update = .installing(version)
+        do {
+            try Updates.install(version) { why in
+                Task { @MainActor in self.update = .installFailed(why) }
+            }
+        } catch {
+            update = .installFailed(error.localizedDescription)
+        }
+    }
+
     func setOpenAtLogin(_ on: Bool) {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -311,6 +345,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task { @MainActor in state.refresh() }
         }
+
+        if state.settings.checkForUpdates { state.checkForUpdates() }
+        Timer.scheduledTimer(withTimeInterval: Updates.checkEvery, repeats: true) { _ in
+            Task { @MainActor in if state.settings.checkForUpdates { state.checkForUpdates() } }
+        }
     }
 }
 
@@ -333,6 +372,7 @@ struct MenuContent: View {
         if let request = state.pending.first {
             Button("Pairing request from \(request.name)…") { state.windows.updatePairing(state) }
         }
+        UpdateMenuItems(state: state)
         if !state.hasAccessibility {
             Button("⚠️ Grant Accessibility Access…") {
                 Input.requestPermission()

@@ -506,6 +506,8 @@ struct SettingsView: View {
                 Text("Pick a schedule next to a device or screen to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
             }
 
+            UpdateSettings(state: state)
+
             Section {
                 Toggle("Serve the docs page", isOn: state.setting(\.docsEnabled))
             } header: {

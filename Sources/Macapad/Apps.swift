@@ -69,49 +69,113 @@ enum Apps {
         return png
     }
 
-    /// An image drawn into a size × size PNG.
+    /// An image drawn into a size × size PNG: the middle square of a wide or tall one (an og:image
+    /// banner), never a squash.
     @MainActor
     private static func squarePNG(_ image: NSImage, size: Int) -> Data? {
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8, samplesPerPixel: 4,
             hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
         ) else { return nil }
+        let w = image.size.width, h = image.size.height, side = min(w, h)
+        let from = NSRect(x: (w - side) / 2, y: (h - side) / 2, width: side, height: side)
+        let to = NSRect(x: 0, y: 0, width: size, height: size)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
+        NSColor.clear.set()
+        to.fill(using: .copy)
+        image.draw(in: to, from: from, operation: .sourceOver, fraction: 1)
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])
     }
 
     // MARK: Website icons
 
-    /// Hosts that had no icon, so they aren't looked up again this run.
-    nonisolated(unsafe) private static var noWebIcon = Set<String>()
+    /// Hosts that had no icon, and when that was found out: asked again after an hour.
+    nonisolated(unsafe) private static var noWebIcon: [String: Date] = [:]
 
-    /// A website's icon (its favicon) as a square PNG, or nil when none can be found. From Google's
-    /// favicon service first (it finds the icon a page declares, not just /favicon.ico), then the
-    /// site's own /favicon.ico. Frontends cache these; `GET /api/web/icon` serves them.
+    /// A website's icon as a square PNG, or nil when none can be found. The icons the site's front
+    /// page declares come first (apple-touch-icon, then <link rel="icon">, then og:image), then its
+    /// /favicon.ico, then Google's favicon service. Frontends cache these; `GET /api/web/icon` serves them.
     static func webIconPNG(host: String, size: Int) async -> Data? {
         let key = "web:\(host)@\(size)"
         if let cached = iconLock.withLock({ iconCache[key] }) { return cached }
-        if iconLock.withLock({ noWebIcon.contains(host) }) { return nil }
-        let sources = [
-            "https://www.google.com/s2/favicons?domain=\(host)&sz=\(max(size, 64))",
-            "https://\(host)/favicon.ico",
-        ]
-        for source in sources {
-            guard let url = URL(string: source) else { continue }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 8
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty,
-                  let image = NSImage(data: data), image.isValid else { continue }
+        if let at = iconLock.withLock({ noWebIcon[host] }), Date().timeIntervalSince(at) < 3600 { return nil }
+        var candidates = await pageIcons(host: host)
+        candidates.append("https://\(host)/favicon.ico")
+        candidates.append("https://www.google.com/s2/favicons?domain=\(host)&sz=\(max(size, 64))")
+        for candidate in candidates {
+            guard let (data, _) = await fetch(candidate), let image = NSImage(data: data), image.isValid,
+                  image.size.width >= 16, image.size.height >= 16 else { continue }
             guard let png = await MainActor.run(body: { squarePNG(image, size: size) }) else { continue }
             iconLock.withLock { iconCache[key] = png }
             return png
         }
-        iconLock.withLock { _ = noWebIcon.insert(host) }
+        NSLog("Macapad: no icon for \(host) (tried \(candidates.count) sources)")
+        iconLock.withLock { noWebIcon[host] = Date() }
         return nil
+    }
+
+    /// One GET, following redirects: the body and the URL it ended up at. nil unless it's a 200 with a body.
+    private static func fetch(_ string: String, timeout: TimeInterval = 6) async -> (Data, URL)? {
+        guard let url = URL(string: string) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X) Macapad", forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else { return nil }
+        return (data, http.url ?? url)
+    }
+
+    /// The icons a site's front page declares, best first: apple-touch-icon, then <link rel="icon">
+    /// (the largest `sizes` first), then the Open Graph / Twitter image. As absolute URLs.
+    private static func pageIcons(host: String) async -> [String] {
+        guard let (data, pageURL) = await fetch("https://\(host)/") else { return [] }
+        let head = data.prefix(512 * 1024)
+        guard let html = String(data: head, encoding: .utf8) ?? String(data: head, encoding: .isoLatin1) else { return [] }
+        var touch: [(Int, String)] = [], icons: [(Int, String)] = [], social: [String] = []
+        for tag in matches(#"<(?:link|meta)\b[^>]*>"#, in: html) {
+            let rel = attribute("rel", in: tag)?.lowercased() ?? ""
+            let property = (attribute("property", in: tag) ?? attribute("name", in: tag))?.lowercased() ?? ""
+            if rel.contains("apple-touch-icon"), let href = attribute("href", in: tag) {
+                touch.append((sizeOf(tag), href))
+            } else if rel.split(separator: " ").contains("icon"), let href = attribute("href", in: tag) {
+                if href.lowercased().hasSuffix(".svg") { continue }  // not every SVG renders through NSImage
+                icons.append((sizeOf(tag), href))
+            } else if ["og:image", "og:image:url", "og:image:secure_url", "twitter:image"].contains(property),
+                      let content = attribute("content", in: tag) {
+                social.append(content)
+            }
+        }
+        let ordered = touch.sorted { $0.0 > $1.0 }.map(\.1) + icons.sorted { $0.0 > $1.0 }.map(\.1) + social
+        var seen = Set<String>()
+        return ordered.compactMap { URL(string: $0, relativeTo: pageURL)?.absoluteString }.filter { seen.insert($0).inserted }
+    }
+
+    private static func matches(_ pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+    }
+
+    /// `name="value"`, `name='value'` or `name=value` inside one tag, with &amp; decoded.
+    private static func attribute(_ name: String, in tag: String) -> String? {
+        let pattern = "\\b\(name)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)) else { return nil }
+        for i in 1...3 {
+            if let r = Range(match.range(at: i), in: tag) {
+                return String(tag[r]).replacingOccurrences(of: "&amp;", with: "&").trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
+    /// The first number in a `sizes="180x180"` attribute; 0 without one. "any" (an SVG) counts as big.
+    private static func sizeOf(_ tag: String) -> Int {
+        guard let sizes = attribute("sizes", in: tag)?.lowercased() else { return 0 }
+        if sizes == "any" { return 1000 }
+        return Int(sizes.split(whereSeparator: { !$0.isNumber }).first ?? "") ?? 0
     }
 
     // MARK: Shortcuts.app

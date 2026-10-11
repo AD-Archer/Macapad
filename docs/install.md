@@ -42,6 +42,17 @@ damaged"). `xattr -dr com.apple.quarantine` removes that flag. Run it again afte
 changes. In System Settings > Privacy & Security > Accessibility, remove Macapad and add it again.
 The one-command install doesn't have this problem.
 
+## Updating
+
+Macapad checks GitHub for a newer release every few hours (turn it off in **Settings → Updates**). When one is out:
+
+- **One-command install:** the menu bar shows **Update to Macapad …**. It runs the same install script for that
+  release in the background, then reopens Macapad on the new version. It takes a few minutes, and you keep
+  Accessibility access. To skip the click, turn on **Settings → Updates → Install updates by itself**. If it fails,
+  the menu bar says why and the full output is in `~/.macapad/update.log`. Running the install command again also updates.
+- **Homebrew:** the menu bar item copies `brew upgrade --cask macapad`. Run it, then the `xattr` command.
+- **A copy somewhere other than `/Applications`:** the menu bar item opens the Releases page.
+
 ## First launch
 
 Grant **Accessibility** access (System Settings → Privacy & Security → Accessibility).

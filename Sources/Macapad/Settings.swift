@@ -41,6 +41,10 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var schedules: [Schedule] = [.workHours]
     /// Where the weather is for, like "Burlington, VT". Empty = wherever the Mac's internet connection says.
     var weatherPlace = ""
+    /// Ask GitHub every few hours whether there's a newer Macapad.
+    var checkForUpdates = true
+    /// Install a newer Macapad as soon as one is found, instead of waiting for a click in the menu.
+    var installUpdates = false
 
     /// The name to advertise and show in pairing.
     var displayName: String {
@@ -85,6 +89,8 @@ struct MacapadSettings: Codable, Equatable, Sendable {
         pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
         schedules = try c.decodeIfPresent([Schedule].self, forKey: .schedules) ?? d.schedules
         weatherPlace = try c.decodeIfPresent(String.self, forKey: .weatherPlace) ?? d.weatherPlace
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
+        installUpdates = try c.decodeIfPresent(Bool.self, forKey: .installUpdates) ?? d.installUpdates
     }
 }
 

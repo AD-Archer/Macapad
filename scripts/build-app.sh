@@ -25,18 +25,45 @@ cp .build/release/Macapad "$APP/Contents/MacOS/Macapad"
 cp Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png Resources/docs.html "$APP/Contents/Resources/"
 
 # System-wide Now Playing (Vendor/mediaremote-adapter/VENDORED.md): a framework /usr/bin/perl loads, plus its script.
-# Optional: without CMake the app still builds and falls back to asking Spotify and Music.
+# Uses CMake when it's installed; otherwise builds the same framework with clang, so no Homebrew is needed.
 ADAPTER="$APP/Contents/Resources/MediaRemoteAdapter"
+FRAMEWORK="build/mediaremote-adapter/MediaRemoteAdapter.framework"
 if command -v cmake >/dev/null; then
   cmake -S Vendor/mediaremote-adapter -B build/mediaremote-adapter -DCMAKE_BUILD_TYPE=Release >/dev/null
   cmake --build build/mediaremote-adapter --target MediaRemoteAdapter >/dev/null
-  mkdir -p "$ADAPTER"
-  cp -R build/mediaremote-adapter/MediaRemoteAdapter.framework "$ADAPTER/"
-  cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$ADAPTER/"
-  codesign --force --sign "$SIGN_IDENTITY" "$ADAPTER/MediaRemoteAdapter.framework"
 else
-  echo "note: cmake not found (brew install cmake); now playing will only see Spotify and Music"
+  # Mirrors CMakeLists.txt: a versioned framework with every symbol visible, for perl's DynaLoader.
+  V="Vendor/mediaremote-adapter"
+  rm -rf "$FRAMEWORK"
+  mkdir -p "$FRAMEWORK/Versions/A/Resources"
+  clang -dynamiclib -arch x86_64 -arch arm64 -fobjc-arc -fvisibility=default -O2 \
+    -I "$V/include" -I "$V/src" "$V"/src/adapter/*.m "$V"/src/private/*.m "$V"/src/utility/*.m \
+    -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
+    -install_name @rpath/MediaRemoteAdapter.framework/Versions/A/MediaRemoteAdapter \
+    -o "$FRAMEWORK/Versions/A/MediaRemoteAdapter"
+  cat > "$FRAMEWORK/Versions/A/Resources/Info.plist" <<FPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>MediaRemoteAdapter</string>
+  <key>CFBundleIdentifier</key><string>com.vandenbe.MediaRemoteAdapter</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>MediaRemoteAdapter</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+</dict>
+</plist>
+FPLIST
+  ln -s A "$FRAMEWORK/Versions/Current"
+  ln -s Versions/Current/MediaRemoteAdapter "$FRAMEWORK/MediaRemoteAdapter"
+  ln -s Versions/Current/Resources "$FRAMEWORK/Resources"
 fi
+mkdir -p "$ADAPTER"
+cp -R "$FRAMEWORK" "$ADAPTER/"
+cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$ADAPTER/"
+codesign --force --sign "$SIGN_IDENTITY" "$ADAPTER/MediaRemoteAdapter.framework"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

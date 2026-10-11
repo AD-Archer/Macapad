@@ -22,8 +22,11 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=critical,codeSigning" 2>/dev/null
 
-# -legacy: macOS's keychain can't read OpenSSL 3's default p12 encryption
-openssl pkcs12 -export -legacy -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
+# macOS's keychain can't read OpenSSL 3's default p12 encryption, so ask OpenSSL 3 for the old one.
+# The openssl that ships with macOS (LibreSSL) already uses it and has no -legacy flag.
+LEGACY=()
+openssl version | grep -q '^OpenSSL 3' && LEGACY=(-legacy)
+openssl pkcs12 -export ${LEGACY[@]+"${LEGACY[@]}"} -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
   -name "$NAME" -out "$TMP/identity.p12" -passout pass:macapad
 
 # -T lets codesign use the key without a keychain prompt on every build

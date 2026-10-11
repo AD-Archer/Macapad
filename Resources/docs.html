@@ -1137,6 +1137,7 @@ const API = [
   ["DELETE", "/api/actions/:id", "none", "<code>{ok: true}</code>. Built-ins can’t be deleted."],
   ["GET", "/api/apps", "none", "<code>{apps: [{name, bundleId, path}]}</code>", "/api/apps"],
   ["GET", "/api/apps/icon?bundleId=…&size=128", "none", "The app’s icon as a PNG, 16–512 px", "/api/apps/icon?bundleId=com.apple.finder&size=128"],
+  ["GET", "/api/web/icon?host=…&size=128", "none", "The website’s icon as a PNG, 16–512 px; <code>204</code> when it has none", "/api/web/icon?host=github.com&size=128"],
   ["GET", "/api/shortcuts", "none", "<code>{shortcuts: [\"name\", …]}</code> from the Shortcuts app", "/api/shortcuts"],
   ["GET", "/api/status", "none", "<code>{time, utcOffset, mac, frontApp, nowPlaying, stats, off}</code>: the Mac’s clock, what’s playing in any app, and CPU, memory, battery and disk", "/api/status"],
   ["GET", "/api/status/artwork?size=256", "none", "The playing track’s artwork as a PNG, 16–512 px. <code>404</code> when there is none."],

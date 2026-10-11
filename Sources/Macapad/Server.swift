@@ -245,6 +245,21 @@ final class Server: Sendable {
             )
         }
 
+        router.get("/api/web/icon") { request, _ -> Response in
+            guard let host = request.uri.queryParameters.get("host").map({ String($0) }), !host.isEmpty,
+                  host.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }) else {
+                throw HTTPError(.badRequest, message: "host is required: a domain name like github.com")
+            }
+            let size = min(512, max(16, request.uri.queryParameters.get("size").flatMap { Int($0) } ?? 128))
+            // 204 for "no icon", so a client can tell it from a Macapad without this route (404)
+            guard let png = await Apps.webIconPNG(host: host, size: size) else { return Response(status: .noContent) }
+            return Response(
+                status: .ok,
+                headers: [.contentType: "image/png", .cacheControl: "max-age=86400"],
+                body: .init(byteBuffer: ByteBuffer(bytes: png))
+            )
+        }
+
         router.get("/api/shortcuts") { _, _ in ShortcutList(shortcuts: await Apps.shortcuts()) }
 
         router.get("/api/status") { _, context -> MacStatus in

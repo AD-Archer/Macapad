@@ -64,18 +64,54 @@ enum Apps {
         let key = "\(bundleId)@\(size)"
         if let cached = iconLock.withLock({ iconCache[key] }) { return cached }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        guard let png = squarePNG(NSWorkspace.shared.icon(forFile: url.path), size: size) else { return nil }
+        iconLock.withLock { iconCache[key] = png }
+        return png
+    }
+
+    /// An image drawn into a size × size PNG.
+    @MainActor
+    private static func squarePNG(_ image: NSImage, size: Int) -> Data? {
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8, samplesPerPixel: 4,
             hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
         ) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        icon.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
+        image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
         NSGraphicsContext.restoreGraphicsState()
-        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        iconLock.withLock { iconCache[key] = png }
-        return png
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    // MARK: Website icons
+
+    /// Hosts that had no icon, so they aren't looked up again this run.
+    nonisolated(unsafe) private static var noWebIcon = Set<String>()
+
+    /// A website's icon (its favicon) as a square PNG, or nil when none can be found. From Google's
+    /// favicon service first (it finds the icon a page declares, not just /favicon.ico), then the
+    /// site's own /favicon.ico. Frontends cache these; `GET /api/web/icon` serves them.
+    static func webIconPNG(host: String, size: Int) async -> Data? {
+        let key = "web:\(host)@\(size)"
+        if let cached = iconLock.withLock({ iconCache[key] }) { return cached }
+        if iconLock.withLock({ noWebIcon.contains(host) }) { return nil }
+        let sources = [
+            "https://www.google.com/s2/favicons?domain=\(host)&sz=\(max(size, 64))",
+            "https://\(host)/favicon.ico",
+        ]
+        for source in sources {
+            guard let url = URL(string: source) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 8
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty,
+                  let image = NSImage(data: data), image.isValid else { continue }
+            guard let png = await MainActor.run(body: { squarePNG(image, size: size) }) else { continue }
+            iconLock.withLock { iconCache[key] = png }
+            return png
+        }
+        iconLock.withLock { _ = noWebIcon.insert(host) }
+        return nil
     }
 
     // MARK: Shortcuts.app

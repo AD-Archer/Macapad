@@ -40,7 +40,7 @@ renamed. Names are matched ignoring case. Each token can have up to 40 named cli
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"0.3.0","network":"lan","mac":{"id","name"},"pairing":true}`; `mac` and `pairing` only where the Mac is discoverable |
+| GET | `/api/health` | none (no token needed) | `{"ok":true,"name":"macapad","version":"1.0.0","network":"lan","mac":{"id","name"},"pairing":true}`; `mac` and `pairing` only where the Mac is discoverable |
 | POST | `/api/pair` | `{"name","app"?}` (no token needed) | `{"id","code","expiresIn","mac"}`; see [pairing](pairing.md) |
 | POST | `/api/pair/qr` | `{"key","name","app"?}` (no token needed) | `{"status":"approved","token","device","mac"}`; see [pairing by QR code](pairing.md) |
 | GET | `/api/pair/:id?wait=25` | none (no token needed) | `{"status":"pending"\|"approved"\|"denied"\|"expired","token"?,"device"?}` |
@@ -56,6 +56,7 @@ renamed. Names are matched ignoring case. Each token can have up to 40 named cli
 | GET | `/api/shortcuts` | none | `{"shortcuts":["name", …]}` from the Shortcuts app |
 | GET | `/api/status` | none | what the Mac is doing now; see [Status](#status) |
 | GET | `/api/status/artwork?size=256` | none | the playing track's artwork as a PNG (16–512 px); `404` when there is none |
+| POST | `/api/input/session` | `{}` | `{"session","udpPort","expiresAfter"}` for [live input over UDP](#live-input); `423` while [paused or off hours](#paused-and-off-hours) |
 
 `/api/run` waits until all steps finish. Errors in the request itself (bad JSON, unknown step type)
 return a 4xx status with `{"error":{"message":"..."}}`.
@@ -79,7 +80,8 @@ curl -X POST http://localhost:7317/api/run \
                   "duration": 215000, "position": 81000, "artworkId": "9f2c01aa" },
   "stats": { "cpu": 31, "memoryUsed": 12865634304, "memoryTotal": 17179869184,
              "battery": 31, "charging": false, "pluggedIn": false,
-             "diskFree": 32191135862, "diskTotal": 245107195904, "uptime": 151635, "thermal": "nominal" } }
+             "diskFree": 32191135862, "diskTotal": 245107195904, "uptime": 151635, "thermal": "nominal" },
+  "keepAwake": { "on": true, "until": "2026-10-10T21:30:00Z" }, "jiggler": { "on": false } }
 ```
 
 - `time` and `utcOffset` are the Mac's clock, for devices whose own clock is wrong.
@@ -91,6 +93,8 @@ curl -X POST http://localhost:7317/api/run \
   whether Macapad may control each app. `app` is the player's name and `bundleId` its bundle id. Times are in
   milliseconds.
 - `artworkId` changes with the track; fetch `/api/status/artwork` again when it does. Missing = no artwork.
+- `keepAwake` and `jiggler` are always there; `until` only when one was turned on for a set time. Switch them with
+  the [`keepAwake` and `jiggler` steps](steps.md).
 - `cpu` is percent of all cores since the previous call. Sizes are bytes. `battery`, `charging` and `pluggedIn` are
   missing on Macs without a battery. `off` is the same object as in [`/api/me`](#paused-and-off-hours).
 
@@ -122,6 +126,7 @@ Use this for a frontend that stays open. It's faster than a new HTTP request for
 
 - `{"type":"run","ref":"<anything>","steps":[...]}`
 - `{"type":"ping"}`: send one every ~25s to keep proxies from closing the connection.
+- `{"type":"input", ...}`: [live input](#live-input). Closing the connection lets go of everything it held.
 
 If you remove a device in Settings, its open WebSocket is closed the next time it sends anything.
 
@@ -135,3 +140,52 @@ ws.onopen = () => {
   ws.send(JSON.stringify({ type: "run", ref: "skip", steps: [{ type: "media", key: "next" }] }));
 };
 ```
+
+## Live input
+
+For controllers and trackpads: holding keys down and moving the pointer in real time. Steps press and let go
+straight away; live input holds things for as long as you say.
+
+Send your **whole state** each time, not presses and releases, so a lost message can't leave a key stuck:
+
+```json
+{ "n": 42, "keys": ["up", "z"], "buttons": ["left"], "dx": 3, "dy": -2, "sx": 0, "sy": 0 }
+```
+
+- `n` goes up with each message (any 64-bit number; it can start fresh with each session or connection). The Mac
+  drops one whose `n` isn't higher than the last (UDP can reorder).
+- `keys`: every key held right now, by its [`keystroke` name](steps.md), plus the modifiers `cmd` `shift` `opt`
+  `ctrl` `fn` and the right-hand `rcmd` `rshift` `ropt` `rctrl`. A key that leaves the list is let go. The last key pressed repeats while held, at the Mac's key repeat
+  speed. Media key names (`playPause` `next` `previous` `volumeUp` `volumeDown` `mute` `brightnessUp`
+  `brightnessDown`) press when they show up; volume and brightness keep going while held. Up to 16; unknown names are skipped, so a button mapped to
+  `cmd+tab` just holds `cmd` and `tab`.
+- `buttons`: mouse buttons held right now, `left` `right` `middle`. Pressing `left` again quickly in the same spot
+  double-clicks.
+- `dx`, `dy`: pointer movement since the previous message, in points (±500). Positive `dy` moves down.
+- `sx`, `sy`: scrolling since the previous message, in pixels. Positive `sy` shows content further down, whatever
+  the natural scrolling setting; positive `sx` shows content further right.
+- Everything but `n` is optional; missing means nothing held and no movement.
+
+Send a message as soon as anything changes (at most once a frame), at least every 100 ms while anything is held,
+and about once a second otherwise. **The Mac lets go of everything a client holds when it hears nothing from it for
+half a second.** When several clients send at once (two consoles for two players), a key is down while any of them
+holds it.
+
+### Over the WebSocket
+
+Send `{"type":"input", ...state}` on [`/api/ws`](#websocket-apiwstokenclient). While the token is paused or off
+hours, the Mac answers `{"type":"error","reason":"off","message":"…","off":{…}}` and holds nothing.
+
+### Over UDP
+
+Lower latency, and nothing waits behind a lost packet, so it suits consoles.
+
+1. `POST /api/input/session` with `{}` → `{"session":"<32 hex>","udpPort":7317,"expiresAfter":30}`.
+2. Send each state as a JSON datagram (up to 1024 bytes) to the Mac's `udpPort`, with `"s":"<session>"` added.
+3. Add `"ack":true` about once a second and the Mac answers `{"type":"ok"}` from the same port, so you can show that
+   input is getting through.
+4. A bad packet gets `{"type":"error","reason":"session"|"off","message":"…"}`, at most once a second.
+   `session` means the session is unknown or expired (30 s without packets, the Mac restarted, or the device was
+   removed): ask for a new one and carry on. `off` means paused or off hours.
+
+The same network rules apply as for HTTP: packets from a network turned off in Settings get no answer.

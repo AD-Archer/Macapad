@@ -16,6 +16,9 @@ struct MacStatus: Codable, ResponseEncodable {
     /// nil until the first fetch works (or with no internet).
     var weather: WeatherNow?
     var stats: MacStats
+    /// Whether the Mac is being kept awake, and whether the mouse jiggler is on.
+    var keepAwake: AwakeMode
+    var jiggler: AwakeMode
     /// Same as `/api/me`: set while this token can't run anything.
     var off: OffStatus?
 }
@@ -66,6 +69,8 @@ enum Status {
             nowPlaying: await playing,
             weather: await Weather.shared.current(),
             stats: await stats(),
+            keepAwake: Awake.shared.mode(.keepAwake),
+            jiggler: Awake.shared.mode(.jiggler),
             off: off
         )
     }

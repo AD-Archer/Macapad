@@ -53,6 +53,8 @@ final class AppState: ObservableObject {
     /// The schedule open in Settings' editor sheet.
     @Published var editingSchedule: EditingSchedule?
     @Published var update: UpdateState = .idle
+    @Published var keepAwake = AwakeMode.off
+    @Published var jiggler = AwakeMode.off
 
     var token: String?
     let windows = Windows()
@@ -325,6 +327,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Clients.shared.observe { next in Task { @MainActor in state.clients = next } }
         Pairing.shared.observe { next in Task { @MainActor in state.pendingChanged(next) } }
         QRPairing.shared.observe { device in Task { @MainActor in state.qrRedeemed(device) } }
+        Awake.shared.observe {
+            Task { @MainActor in
+                state.keepAwake = Awake.shared.mode(.keepAwake)
+                state.jiggler = Awake.shared.mode(.jiggler)
+            }
+        }
         state.startDiscovery()
         Task.detached {
             await MainActor.run {
@@ -380,6 +388,13 @@ struct MenuContent: View {
             }
         }
         Divider()
+        Toggle(awakeTitle("Keep Mac Awake", state.keepAwake), isOn: Binding(
+            get: { state.keepAwake.on }, set: { Awake.shared.set(.keepAwake, on: $0) }
+        ))
+        Toggle(awakeTitle("Mouse Jiggler", state.jiggler), isOn: Binding(
+            get: { state.jiggler.on }, set: { Awake.shared.set(.jiggler, on: $0) }
+        ))
+        Divider()
         Button("Pair with QR Code…") { state.showQR() }
         Divider()
         Button("Copy API URL (local network)") { state.copy(state.lanURL) }
@@ -400,6 +415,12 @@ struct MenuContent: View {
         Button("Quit Macapad") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
+}
+
+/// "Keep Mac Awake (until 5:00 PM)" when a device turned it on for a while.
+private func awakeTitle(_ title: String, _ mode: AwakeMode) -> String {
+    guard mode.on, let until = mode.until else { return title }
+    return "\(title) (until \(Availability.describe(until)))"
 }
 
 enum Tailscale {

@@ -110,8 +110,20 @@ final class Actions: @unchecked Sendable {
         MacAction(id: id, name: name, icon: icon, category: category, steps: [.keystroke(combo)])
     }
 
-    private static func media(_ id: String, _ name: String, _ icon: String, _ key: MediaKey) -> MacAction {
-        MacAction(id: id, name: name, icon: icon, category: "media", steps: [.media(key)])
+    private static func media(_ id: String, _ name: String, _ icon: String, _ key: MediaKey, category: String = "media") -> MacAction {
+        MacAction(id: id, name: name, icon: icon, category: category, steps: [.media(key)])
+    }
+
+    private static func window(_ id: String, _ name: String, _ icon: String, _ to: WindowPlacement) -> MacAction {
+        MacAction(id: id, name: name, icon: icon, category: "windows", steps: [.window(to)])
+    }
+
+    private static func toggle(_ id: String, _ name: String, _ icon: String, _ setting: SystemSetting) -> MacAction {
+        MacAction(id: id, name: name, icon: icon, category: "system", steps: [.toggle(setting, on: nil)])
+    }
+
+    private static func script(_ id: String, _ name: String, _ icon: String, _ source: String) -> MacAction {
+        MacAction(id: id, name: name, icon: icon, category: "system", steps: [.appleScript(source)])
     }
 
     static let builtin: [MacAction] = [
@@ -131,12 +143,56 @@ final class Actions: @unchecked Sendable {
         keys("app-windows", "App windows", "apps", "system", "ctrl+down"),
         keys("lock-screen", "Lock screen", "lock", "system", "ctrl+cmd+q"),
 
+        MacAction(id: "keep-awake", name: "Keep Mac awake", icon: "coffee", category: "system", steps: [.keepAwake(on: nil, minutes: nil)]),
+        MacAction(id: "jiggler", name: "Mouse jiggler", icon: "mouse", category: "system", steps: [.jiggler(on: nil, minutes: nil)]),
+        MacAction(id: "siri", name: "Siri", icon: "mic", category: "system", steps: [.openApp("com.apple.siri.launcher")]),
+        media("brightness-up", "Brightness up", "brightness_high", .brightnessUp, category: "system"),
+        media("brightness-down", "Brightness down", "brightness_low", .brightnessDown, category: "system"),
+        toggle("dark-mode", "Dark mode", "dark_mode", .darkMode),
+        toggle("wifi", "Wi-Fi on/off", "wifi", .wifi),
+        toggle("bluetooth", "Bluetooth on/off", "bluetooth", .bluetooth),
+        toggle("stage-manager", "Stage Manager", "view_sidebar", .stageManager),
+        toggle("hidden-files", "Show hidden files", "visibility", .hiddenFiles),
+        script("empty-trash", "Empty Trash", "delete", "tell application \"Finder\" to empty trash"),
+        script("eject-disks", "Eject all disks", "eject", "tell application \"Finder\" to eject (every disk whose ejectable is true)"),
+        script("sleep-display", "Turn off display", "desktop_access_disabled", "do shell script \"pmset displaysleepnow\""),
+        script("sleep", "Sleep", "bedtime", "do shell script \"pmset sleepnow\""),
+        // System Events asks apps to quit first, so unsaved work still gets its "Save?" prompt.
+        script("restart", "Restart", "restart_alt", "tell application \"System Events\" to restart"),
+        script("shut-down", "Shut down", "power_settings_new", "tell application \"System Events\" to shut down"),
+        MacAction(id: "screen-saver", name: "Screen saver", icon: "wallpaper", category: "system", steps: [.openApp("com.apple.ScreenSaver.Engine")]),
+        keys("show-desktop", "Show desktop", "desktop_windows", "system", "f11"),
+        keys("force-quit", "Force quit…", "cancel", "system", "cmd+opt+esc"),
+
+        keys("accessibility-shortcuts", "Accessibility shortcuts", "accessibility_new", "accessibility", "opt+cmd+f5"),
+        keys("voiceover", "VoiceOver", "record_voice_over", "accessibility", "cmd+f5"),
+        keys("zoom", "Zoom", "zoom_in", "accessibility", "opt+cmd+8"),
+        keys("zoom-in", "Zoom in", "zoom_in", "accessibility", "opt+cmd+="),
+        keys("zoom-out", "Zoom out", "zoom_out", "accessibility", "opt+cmd+-"),
+        keys("invert-colors", "Invert colors", "invert_colors", "accessibility", "ctrl+opt+cmd+8"),
+        keys("speak-selection", "Speak selection", "text_to_speech", "accessibility", "opt+esc"),
+
         keys("minimize", "Minimise window", "arrow_downward", "windows", "cmd+m"),
         keys("fullscreen", "Toggle full screen", "open_in_new", "windows", "ctrl+cmd+f"),
         keys("close-window", "Close window", "close", "windows", "cmd+shift+w"),
         keys("next-window", "Next window of app", "refresh", "windows", "cmd+`"),
         keys("hide-app", "Hide app", "remove_circle_outline", "windows", "cmd+h"),
         keys("quit-app", "Quit app", "power_settings_new", "windows", "cmd+q"),
+        window("window-left", "Left half", "splitscreen_left", .left),
+        window("window-right", "Right half", "splitscreen_right", .right),
+        window("window-top", "Top half", "splitscreen_top", .top),
+        window("window-bottom", "Bottom half", "splitscreen_bottom", .bottom),
+        window("window-top-left", "Top-left quarter", "north_west", .topLeft),
+        window("window-top-right", "Top-right quarter", "north_east", .topRight),
+        window("window-bottom-left", "Bottom-left quarter", "south_west", .bottomLeft),
+        window("window-bottom-right", "Bottom-right quarter", "south_east", .bottomRight),
+        window("window-maximize", "Fill screen", "fit_screen", .maximize),
+        window("window-center", "Center window", "filter_center_focus", .center),
+        window("window-next-display", "Move to next display", "monitor", .nextDisplay),
+        window("window-restore", "Restore size", "restore", .restore),
+
+        MacAction(id: "left-click", name: "Click", icon: "left_click", category: "mouse", steps: [.click(.left, count: 1)]),
+        MacAction(id: "right-click", name: "Right-click", icon: "right_click", category: "mouse", steps: [.click(.right, count: 1)]),
 
         keys("reload", "Reload", "refresh", "browser", "cmd+r"),
         keys("hard-reload", "Hard reload", "refresh", "browser", "cmd+shift+r"),

@@ -46,6 +46,13 @@ Homebrew and other ways: [docs/install.md](docs/install.md).
 - [vita-macapad](https://github.com/AD-Archer/vita-macapad): a PlayStation Vita app.
 - [3ds-macapad](https://github.com/AD-Archer/3ds-macapad): a Nintendo 3DS app.
 
+## Features
+- Mouse Jiggeler
+- Use Client device as controller
+- Stop device from sleeping
+- Accesibilty settings
+- Toggle wifi/bluetooth
+
 ## Docs
 
 - [Install](docs/install.md)

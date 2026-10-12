@@ -214,6 +214,8 @@
 
   /* ---------- the connect card (pairing screens and the pad) ---------- */
 
+  .trackpad { height: 220px; border-radius: 16px; background: var(--group); margin-top: 14px; touch-action: none;
+              display: flex; align-items: center; justify-content: center; color: var(--dim); user-select: none; -webkit-user-select: none; }
   .card { background: var(--group); border-radius: 16px; padding: 6px 16px 16px; margin-top: 14px; }
   .card h3 { font-size: 22px; font-weight: 700; margin: 10px 0 6px; }
   .card .label { font-size: 13px; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px; letter-spacing: .02em; }
@@ -290,6 +292,7 @@
     <a href="#actions">Actions</a>
     <a href="#api">HTTP API</a>
     <a href="#websocket">WebSocket</a>
+    <a href="#input">Live input</a>
     <a href="#networks">Networks &amp; tokens</a>
   </nav>
 
@@ -517,6 +520,28 @@ ws.onopen = () =&gt; {
         <button class="try" id="ws-test" data-needs>Test the connection</button>
         <span class="result" id="ws-result"></span>
       </div>
+      <p class="needs"><a href="#connect">Pair with a Mac</a> to try it.</p>
+    </section>
+
+    <!-- ---------- Live input ---------- -->
+    <section class="page" id="input" hidden>
+      <h1>Live input</h1>
+      <p class="lede">For controllers and trackpads: hold keys down and move the pointer in real time.</p>
+      <p>Send your <b>whole state</b> each time, not presses and releases, so a lost message can’t leave a key stuck:</p>
+      <pre><code>{"n": 42, "keys": ["up", "z"], "buttons": ["left"], "dx": 3, "dy": -2, "sx": 0, "sy": 0}</code></pre>
+      <ul>
+        <li><code>n</code> goes up by one each time; older ones are dropped.</li>
+        <li><code>keys</code> is every key held right now: <code>keystroke</code> key names, the modifiers <code>cmd</code> <code>shift</code> <code>opt</code> <code>ctrl</code> <code>fn</code>, and media keys like <code>volumeUp</code> (pressed once). Held keys repeat like a real keyboard.</li>
+        <li><code>buttons</code>: mouse buttons held, <code>left</code> <code>right</code> <code>middle</code>.</li>
+        <li><code>dx</code>, <code>dy</code> move the pointer and <code>sx</code>, <code>sy</code> scroll (pixels; positive <code>sy</code> scrolls down), counted since the last message.</li>
+      </ul>
+      <p>Send a message as soon as anything changes, at least every 100 ms while anything is held, and once a second otherwise. The Mac lets go of everything you hold when it hears nothing for half a second. When several clients hold keys at once, a key stays down while any of them holds it.</p>
+      <h2>Over the WebSocket</h2>
+      <p>Send <code>{"type": "input", ...state}</code>. While you’re paused you get <code>{"type": "error", "reason": "off", "message"}</code>.</p>
+      <h2>Over UDP</h2>
+      <p>Lower latency, for consoles. <code>POST /api/input/session</code> returns <code>{session, udpPort, expiresAfter}</code>. Send each state as a JSON datagram, with <code>"s": session</code>, to the Mac’s <code>udpPort</code>. Add <code>"ack": true</code> about once a second and the Mac answers <code>{"type": "ok"}</code>. A bad or expired session gets <code>{"type": "error", "reason": "session"}</code>: ask for a new one.</p>
+      <h2>Try it: a trackpad</h2>
+      <div class="trackpad" id="trackpad">Drag to move the pointer. Tap to click.</div>
       <p class="needs"><a href="#connect">Pair with a Mac</a> to try it.</p>
     </section>
 
@@ -1059,7 +1084,7 @@ async function pad(mac) {
 // ---------- docs: steps ----------
 
 const STEPS = [
-  ["media", "<code>key</code>: <code>playPause</code> <code>next</code> <code>previous</code> <code>volumeUp</code> <code>volumeDown</code> <code>mute</code>", { type: "media", key: "next" }],
+  ["media", "<code>key</code>: <code>playPause</code> <code>next</code> <code>previous</code> <code>volumeUp</code> <code>volumeDown</code> <code>mute</code> <code>brightnessUp</code> <code>brightnessDown</code>", { type: "media", key: "next" }],
   ["keystroke", "<code>keys</code>: modifiers + one key", { type: "keystroke", keys: "cmd+space" }],
   ["typeText", "<code>text</code>", { type: "typeText", text: "hello" }],
   ["openURL", "<code>url</code>, in the default browser", { type: "openURL", url: "https://hackclub.com" }],
@@ -1068,6 +1093,13 @@ const STEPS = [
   ["appleScript", "<code>source</code>", { type: "appleScript", source: "beep" }],
   ["wait", "<code>ms</code>, up to 60000", { type: "wait", ms: 500 }],
   ["action", "<code>id</code> of a built-in or custom action", { type: "action", id: "mission-control" }],
+  ["window", "<code>to</code>: <code>left</code> <code>right</code> <code>top</code> <code>bottom</code> <code>top-left</code> <code>top-right</code> <code>bottom-left</code> <code>bottom-right</code> <code>left-third</code> <code>center-third</code> <code>right-third</code> <code>left-two-thirds</code> <code>right-two-thirds</code> <code>maximize</code> <code>center</code> <code>next-display</code> <code>restore</code>; moves the front window", { type: "window", to: "left" }],
+  ["keepAwake", "<code>on</code> (leave out to switch it), <code>minutes</code> (leave out for until it’s turned off)", { type: "keepAwake", minutes: 60 }],
+  ["jiggler", "the same; nudges the pointer when the Mac sits idle, so it never counts as away", { type: "jiggler" }],
+  ["click", "<code>button</code>: <code>left</code> <code>right</code> <code>middle</code>; <code>count</code>: 1 or 2", { type: "click", button: "right" }, false],
+  ["scroll", "<code>dx</code>, <code>dy</code> in lines; positive <code>dy</code> scrolls down", { type: "scroll", dy: 5 }],
+  ["moveMouse", "<code>dx</code>, <code>dy</code> in points", { type: "moveMouse", dx: 100, dy: 0 }],
+  ["toggle", "<code>setting</code>: <code>wifi</code> <code>bluetooth</code> <code>hiddenFiles</code> <code>stageManager</code> <code>darkMode</code>; <code>on</code> (leave out to switch it)", { type: "toggle", setting: "darkMode" }],
 ];
 
 document.getElementById("steps-table").innerHTML = `
@@ -1147,8 +1179,9 @@ const API = [
   ["GET", "/api/apps/icon?bundleId=…&size=128", "none", "The app’s icon as a PNG, 16–512 px", "/api/apps/icon?bundleId=com.apple.finder&size=128"],
   ["GET", "/api/web/icon?host=…&size=128", "none", "The website’s icon as a PNG, 16–512 px; <code>204</code> when it has none", "/api/web/icon?host=github.com&size=128"],
   ["GET", "/api/shortcuts", "none", "<code>{shortcuts: [\"name\", …]}</code> from the Shortcuts app", "/api/shortcuts"],
-  ["GET", "/api/status", "none", "<code>{time, utcOffset, mac, frontApp, nowPlaying, stats, off}</code>: the Mac’s clock, what’s playing in any app, and CPU, memory, battery and disk", "/api/status"],
+  ["GET", "/api/status", "none", "<code>{time, utcOffset, mac, frontApp, nowPlaying, stats, keepAwake, jiggler, off}</code>: the Mac’s clock, what’s playing in any app, CPU, memory, battery and disk, and whether it’s being kept awake", "/api/status"],
   ["GET", "/api/status/artwork?size=256", "none", "The playing track’s artwork as a PNG, 16–512 px. <code>404</code> when there is none."],
+  ["POST", "/api/input/session", "<code>{}</code>", "<code>{session, udpPort, expiresAfter}</code>, for sending <a href=\"#input\">live input</a> over UDP. <code>423</code> while paused."],
 ];
 
 document.getElementById("api-table").innerHTML = `
@@ -1202,6 +1235,41 @@ document.getElementById("ws-test").onclick = () => {
   };
   ws.onerror = () => { clearTimeout(timer); done(false, "The connection failed."); };
 };
+
+// ---------- live input: the trackpad ----------
+
+{
+  const pad = document.getElementById("trackpad");
+  let ws = null, n = 0, dx = 0, dy = 0, start = null, moved = false, frame = 0;
+  const open = () => {
+    if (ws && ws.readyState <= 1) return;
+    if (!conn) { pad.textContent = "Pair with a Mac first."; return; }
+    ws = new WebSocket(`${conn.route.url.replace(/^http/, "ws")}/api/ws?token=${encodeURIComponent(conn.mac.token)}`);
+    ws.onmessage = (e) => { const msg = JSON.parse(e.data); if (msg.type === "error") pad.textContent = msg.message; };
+  };
+  const send = (state) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: "input", n: ++n, ...state })); };
+  const flush = () => {
+    frame = 0;
+    // A little acceleration: quick swipes go further than slow ones.
+    const speed = Math.min(3, 1.2 + Math.hypot(dx, dy) / 12);
+    send({ dx: Math.round(dx * speed), dy: Math.round(dy * speed) });
+    dx = dy = 0;
+  };
+  pad.onpointerdown = (e) => { open(); pad.setPointerCapture(e.pointerId); start = { x: e.clientX, y: e.clientY, t: performance.now() }; moved = false; };
+  pad.onpointermove = (e) => {
+    if (!start) return;
+    dx += e.movementX; dy += e.movementY;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) moved = true;
+    if (!frame) frame = requestAnimationFrame(flush);
+  };
+  pad.onpointerup = () => {
+    if (start && !moved && performance.now() - start.t < 250) {
+      send({ buttons: ["left"] });
+      setTimeout(() => send({}), 40);
+    }
+    start = null;
+  };
+}
 
 // ---------- pages: the hash picks which one shows ----------
 

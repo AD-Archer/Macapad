@@ -209,6 +209,21 @@ final class Server: Sendable {
             return try await Self.execute(body.steps).response(from: request, context: context)
         }
 
+        // Live input over UDP (controllers): the session is the key each packet carries.
+        router.post("/api/input/session") { request, context -> Response in
+            if let off = Availability.check(context.caller, settings: SettingsStore.shared.current) {
+                var response = try OffError(error: .init(message: off.message), off: off).response(from: request, context: context)
+                response.status = .init(code: 423, reasonPhrase: "Locked")
+                return response
+            }
+            guard let udpPort = LiveInput.shared.udpPort else {
+                throw HTTPError(.serviceUnavailable, message: "Live input is unavailable: UDP port \(self.port) is in use")
+            }
+            let session = LiveInput.shared.openSession(for: context.caller ?? Caller())
+            return try InputSession(session: session, udpPort: udpPort, expiresAfter: Int(LiveInput.sessionLifetime))
+                .response(from: request, context: context)
+        }
+
         router.get("/api/actions") { _, _ in ActionList(actions: Actions.shared.all) }
 
         router.post("/api/actions") { request, context -> MacAction in
@@ -297,6 +312,8 @@ final class Server: Sendable {
             let suppliedToken = context.request.uri.queryParameters.get("token") ?? ""
             // Checked when the connection opened (AuthMiddleware), so this can't fail on a bad name.
             let label = try? ClientLabel.from(context.request)
+            let connection = "ws-" + UUID().uuidString
+            defer { LiveInput.shared.remove(connection) }
             for try await message in inbound.messages(maxSize: 1 << 20) {
                 // A device removed in Settings loses its open connection on its next message.
                 guard let caller = try? AuthMiddleware.caller(
@@ -313,6 +330,11 @@ final class Server: Sendable {
                 switch msg.type {
                 case "ping":
                     try await outbound.write(.text(#"{"type":"pong"}"#))
+                case "input":
+                    guard let state = try? JSONDecoder().decode(InputState.self, from: Data(text.utf8)) else { continue }
+                    if let reply = LiveInput.shared.webSocket(state, id: connection, caller: caller) {
+                        try await outbound.write(.text(reply.json))
+                    }
                 case "run":
                     // Run outside the read loop so a long sequence doesn't block the next one.
                     let steps = msg.steps ?? []
@@ -334,6 +356,7 @@ final class Server: Sendable {
             }
         }
 
+        LiveInput.shared.listen(port: port)
         let app = Application(
             router: router,
             server: .http1WebSocketUpgrade(webSocketRouter: router),

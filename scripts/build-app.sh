@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 APP="build/Macapad.app"
-VERSION="${VERSION:-0.4.0}"
+VERSION="${VERSION:-1.0.0}"
 # Sign with the "Macapad Dev" identity (scripts/make-signing-cert.sh) so macOS keeps the
 # Accessibility permission across rebuilds; ad-hoc otherwise. Override with SIGN_IDENTITY=...
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
@@ -81,6 +81,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Macapad runs AppleScript steps from your buttons.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Macapad turns Bluetooth on and off when a button asks it to.</string>
 </dict>
 </plist>
 PLIST

@@ -57,24 +57,46 @@ enum Runner {
             try await exec("/usr/bin/osascript", ["-e", source])
         case .wait(let ms):
             try await Task.sleep(for: .milliseconds(max(0, min(ms, 60_000))))
+        case .window(let placement):
+            try await MainActor.run { try WindowLayout.move(placement) }
+        case .keepAwake(let on, let minutes):
+            Awake.shared.set(.keepAwake, on: on, minutes: minutes)
+        case .jiggler(let on, let minutes):
+            Awake.shared.set(.jiggler, on: on, minutes: minutes)
+        case .click(let button, let count):
+            try Input.click(button, count: count)
+        case .scroll(let dx, let dy):
+            try Input.scroll(dx: dx, dy: dy)
+        case .toggle(let setting, let on):
+            try await SystemToggles.set(setting, on: on)
+        case .moveMouse(let dx, let dy):
+            try Input.moveMouse(dx: max(-5000, min(dx, 5000)), dy: max(-5000, min(dy, 5000)))
         }
     }
 
     /// Runs a command-line tool and throws its error output if it fails.
-    private static func exec(_ path: String, _ args: [String]) async throws {
+    static func exec(_ path: String, _ args: [String]) async throws {
+        _ = try await output(path, args)
+    }
+
+    /// Runs a command-line tool and returns what it printed, trimmed; throws its error output if it fails.
+    static func output(_ path: String, _ args: [String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
-        let stderr = Pipe()
+        let stdout = Pipe(), stderr = Pipe()
+        process.standardOutput = stdout
         process.standardError = stderr
-        process.standardOutput = FileHandle.nullDevice
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             process.terminationHandler = { p in
-                if p.terminationStatus == 0 {
-                    cont.resume()
-                } else {
-                    let output = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                let read = { (pipe: Pipe) in
+                    String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if p.terminationStatus == 0 {
+                    cont.resume(returning: read(stdout))
+                } else {
+                    let output = read(stderr)
                     cont.resume(throwing: StepError(message: output.isEmpty ? "\(path) exited with \(p.terminationStatus)" : output))
                 }
             }

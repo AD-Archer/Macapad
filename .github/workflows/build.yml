@@ -17,7 +17,7 @@ permissions:
 
 env:
   # Bump this for a new minor/major line; the patch number is the run number.
-  VERSION_PREFIX: "0.3"
+  VERSION_PREFIX: "1.0"
 
 concurrency:
   group: build-${{ github.ref }}

@@ -28,10 +28,10 @@ Requests with the owner token must also say who's calling, or they get `400`:
 - HTTP: `X-Macapad-Client: Office display` (percent-encode names that aren't plain ASCII)
 - WebSocket: `?client=Office%20display`
 
-Each name shows up in Settings with its own schedule and pause, so one server can call for several screens
-(archersdesk does: one name per screen) and each can keep different hours. Paired devices already have a name, so for
-them it's optional; one that sends it gets a named client under the device, which follows the device's schedule
-unless you pick another.
+Each name shows up in Settings with its own schedule, Wi-Fi place and pause, so one server can call for several
+screens (archersdesk does: one name per screen) and each can keep different hours. Paired devices already have a name,
+so for them it's optional; one that sends it gets a named client under the device, which follows the device's schedule
+and Wi-Fi place unless you pick others.
 
 Add `X-Macapad-Client-Id` (or `?clientId=`), a stable id up to 64 characters, to keep a client's settings when it's
 renamed. Names are matched ignoring case. Each token can have up to 40 named clients.
@@ -100,16 +100,18 @@ curl -X POST http://localhost:7317/api/run \
 
 ### Paused and off hours
 
-While the Mac is paused, the device or client is paused, or it's outside its schedule (the client's, or else the
-device's), `/api/run` runs nothing and returns `423`:
+While the Mac is paused, the device or client is paused, it's outside its schedule, or the Mac isn't on its Wi-Fi
+place's network (the client's schedule and place, or else the device's), `/api/run` runs nothing and returns `423`:
 
 ```json
 { "error": { "message": "Outside Work hours. Office display is off until Monday at 9:00 AM" },
   "off": { "reason": "schedule", "until": "2026-10-19T13:00:00Z", "message": "Outside Work hours. …" } }
 ```
 
-`reason` is `mac` (everything is paused), `device` (the device or client is paused) or `schedule`. `until` is when
-it can run again, taking all of them into account; it's missing when it stays off until someone turns it back on.
+`reason` is `mac` (everything is paused), `device` (the device or client is paused), `wifi` (the Mac isn't on one of
+its Wi-Fi place's networks, or can't tell which Wi-Fi it's on) or `schedule`. `until` is when it can run again, taking
+all of them into account; it's missing when it stays off until someone turns it back on, or until the Mac is back on the
+right Wi-Fi.
 `message` is ready to show. `GET /api/me` has the same `off` object, so a frontend can grey out its buttons up front.
 
 ## WebSocket: `/api/ws?token=...&client=...`

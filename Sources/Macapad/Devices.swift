@@ -16,6 +16,8 @@ struct PairedDevice: Codable, Sendable, Identifiable, ResponseEncodable {
     var tokenHash: String
     /// The schedule (in settings) this device works during. Nil = all the time.
     var scheduleId: String?
+    /// The Wi-Fi place (in settings) this device works at. Nil = on any network.
+    var wifiPlaceId: String?
     /// While set and in the future, this device can't run anything. Far future = until turned back on.
     var pausedUntil: Date?
 
@@ -76,10 +78,10 @@ final class Devices: @unchecked Sendable {
         }
     }
 
-    /// Devices on a schedule that's being deleted go back to working all the time.
-    func clearSchedule(_ scheduleId: String) {
+    /// Devices on a schedule or Wi-Fi place that's being deleted go back to working all the time.
+    func clear(_ field: WritableKeyPath<PairedDevice, String?>, matching id: String) {
         mutate { devices in
-            for i in devices.indices where devices[i].scheduleId == scheduleId { devices[i].scheduleId = nil }
+            for i in devices.indices where devices[i][keyPath: field] == id { devices[i][keyPath: field] = nil }
         }
     }
 

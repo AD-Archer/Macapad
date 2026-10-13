@@ -52,6 +52,11 @@ final class AppState: ObservableObject {
     @Published var pausePrompt: PausePrompt?
     /// The schedule open in Settings' editor sheet.
     @Published var editingSchedule: EditingSchedule?
+    /// The Wi-Fi place open in Settings' editor sheet.
+    @Published var editingPlace: EditingPlace?
+    /// The Wi-Fi this Mac is on, when macOS will say.
+    @Published var wifiName = WiFi.shared.current
+    @Published var wifiAccess = WiFi.shared.access
     @Published var update: UpdateState = .idle
     @Published var keepAwake = AwakeMode.off
     @Published var jiggler = AwakeMode.off
@@ -99,6 +104,10 @@ final class AppState: ObservableObject {
         Devices.shared.update(device.id) { $0.scheduleId = scheduleId }
     }
 
+    func setPlace(_ device: PairedDevice, _ placeId: String?) {
+        Devices.shared.update(device.id) { $0.wifiPlaceId = placeId }
+    }
+
     func remove(_ device: PairedDevice) {
         Devices.shared.remove(device.id)
         Clients.shared.removeAll(deviceId: device.id)
@@ -110,6 +119,10 @@ final class AppState: ObservableObject {
 
     func setSchedule(_ client: Client, _ scheduleId: String?) {
         Clients.shared.update(client.id) { $0.scheduleId = scheduleId }
+    }
+
+    func setPlace(_ client: Client, _ placeId: String?) {
+        Clients.shared.update(client.id) { $0.wifiPlaceId = placeId }
     }
 
     /// Looks up the tailnet's computer names again (when Settings opens).
@@ -139,9 +152,36 @@ final class AppState: ObservableObject {
     }
 
     func deleteSchedule(_ schedule: Schedule) {
-        Devices.shared.clearSchedule(schedule.id)
-        Clients.shared.clearSchedule(schedule.id)
+        Devices.shared.clear(\.scheduleId, matching: schedule.id)
+        Clients.shared.clear(\.scheduleId, matching: schedule.id)
         SettingsStore.shared.update { $0.schedules.removeAll { $0.id == schedule.id } }
+    }
+
+    /// Opens the editor for a new place, already holding the Wi-Fi the Mac is on. Adding one is
+    /// when Macapad first needs to see the Wi-Fi, so that's when it asks for Location.
+    func addPlace() {
+        WiFi.shared.requestAccess()
+        editingPlace = EditingPlace(WiFiPlace(networks: wifiName.map { [$0] } ?? []), isNew: true)
+    }
+
+    func savePlace(_ place: WiFiPlace) {
+        SettingsStore.shared.update { settings in
+            if let i = settings.wifiPlaces.firstIndex(where: { $0.id == place.id }) {
+                settings.wifiPlaces[i] = place
+            } else {
+                settings.wifiPlaces.append(place)
+            }
+        }
+    }
+
+    func deletePlace(_ place: WiFiPlace) {
+        Devices.shared.clear(\.wifiPlaceId, matching: place.id)
+        Clients.shared.clear(\.wifiPlaceId, matching: place.id)
+        SettingsStore.shared.update { $0.wifiPlaces.removeAll { $0.id == place.id } }
+    }
+
+    func place(_ id: String?) -> WiFiPlace? {
+        id.flatMap { id in settings.wifiPlaces.first { $0.id == id } }
     }
 
     /// Why a device is off right now, leaving out a pause of the whole Mac (shown separately).
@@ -251,6 +291,8 @@ final class AppState: ObservableObject {
         now = Date()
         hasAccessibility = Input.hasPermission
         openAtLogin = SMAppService.mainApp.status == .enabled
+        wifiName = WiFi.shared.current
+        wifiAccess = WiFi.shared.access
     }
 
     /// Asks GitHub for the latest release. Does nothing under `swift run` or while one is installing.
@@ -327,6 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Clients.shared.observe { next in Task { @MainActor in state.clients = next } }
         Pairing.shared.observe { next in Task { @MainActor in state.pendingChanged(next) } }
         QRPairing.shared.observe { device in Task { @MainActor in state.qrRedeemed(device) } }
+        WiFi.shared.observe { Task { @MainActor in state.refresh() } }
+        WiFi.shared.start()
         Awake.shared.observe {
             Task { @MainActor in
                 state.keepAwake = Awake.shared.mode(.keepAwake)

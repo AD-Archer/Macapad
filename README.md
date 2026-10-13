@@ -56,7 +56,7 @@ Homebrew and other ways: [docs/install.md](docs/install.md).
 ## Docs
 
 - [Install](docs/install.md)
-- [Settings](docs/settings.md): who can reach the Mac, pausing, schedules
+- [Settings](docs/settings.md): who can reach the Mac, pausing, schedules, Wi-Fi places
 - [API](docs/api.md): connecting, tokens, HTTP endpoints, status, WebSocket
 - [Pairing](docs/pairing.md): finding Macs and getting a token, by code or QR
 - [Steps and actions](docs/steps.md): everything the Mac can do

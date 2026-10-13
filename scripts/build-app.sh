@@ -82,6 +82,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Macapad runs AppleScript steps from your buttons.</string>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Macapad turns Bluetooth on and off when a button asks it to.</string>
+  <key>NSLocationUsageDescription</key><string>Macapad checks which Wi-Fi this Mac is on, so devices set to a Wi-Fi place only work there. Your location isn’t used or sent anywhere.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Macapad checks which Wi-Fi this Mac is on, so devices set to a Wi-Fi place only work there. Your location isn’t used or sent anywhere.</string>
 </dict>
 </plist>
 PLIST

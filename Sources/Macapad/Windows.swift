@@ -381,6 +381,139 @@ struct ScheduleEditor: View {
     }
 }
 
+/// A Wi-Fi place being added or edited in its sheet.
+final class EditingPlace: ObservableObject, Identifiable {
+    @Published var place: WiFiPlace
+    @Published var confirmDelete = false
+    let isNew: Bool
+    /// Networks this Mac has joined before, to pick from instead of typing.
+    let remembered = WiFi.shared.remembered
+    var id: String { place.id }
+
+    init(_ place: WiFiPlace, isNew: Bool) {
+        self.place = place
+        self.isNew = isNew
+    }
+}
+
+struct PlaceEditor: View {
+    @ObservedObject var editing: EditingPlace
+    @ObservedObject var state: AppState
+    /// How many devices work only here, for the delete warning.
+    let usedBy: Int
+    let onSave: (WiFiPlace) -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var place: WiFiPlace {
+        get { editing.place }
+        nonmutating set { editing.place = newValue }
+    }
+    private var isNew: Bool { editing.isNew }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(isNew ? "New Wi-Fi Place" : "Edit Wi-Fi Place").font(.headline)
+
+            TextField("Name", text: $editing.place.name, prompt: Text("Work"))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Wi-Fi networks")
+                if place.networks.isEmpty {
+                    Text("Add the networks you use there.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(place.networks, id: \.self) { network in
+                    HStack {
+                        Label(network, systemImage: "wifi")
+                        if network == state.wifiName {
+                            Text("This Mac is on it")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            place.networks.removeAll { $0 == network }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove \(network)")
+                    }
+                }
+                let current = state.wifiName.flatMap { place.networks.contains($0) ? nil : $0 }
+                let others = editing.remembered.filter { $0 != current && !place.networks.contains($0) }
+                if current != nil || !others.isEmpty {
+                    Menu("Add Network") {
+                        if let current {
+                            Button("\(current) (this Mac is on it)") { place.networks.append(current) }
+                            if !others.isEmpty { Divider() }
+                        }
+                        ForEach(others, id: \.self) { network in
+                            Button(network) { place.networks.append(network) }
+                        }
+                    }
+                    .fixedSize()
+                }
+            }
+
+            if state.wifiAccess != .allowed {
+                LocationAccessNote(state: state)
+            }
+
+            Text("Devices set to this place only work while this Mac is on one of these networks.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                if !isNew {
+                    Button("Delete Place…", role: .destructive) { editing.confirmDelete = true }
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(isNew ? "Add" : "Save") {
+                    var saved = place
+                    saved.name = saved.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if saved.name.isEmpty { saved.name = saved.networks.first ?? "Place" }
+                    onSave(saved)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(place.networks.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+        .confirmationDialog("Delete “\(place.name)”?", isPresented: $editing.confirmDelete) {
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text(usedBy == 0 ? "No devices use it."
+                : "\(usedBy == 1 ? "1 device uses" : "\(usedBy) devices use") it. They’ll work on any Wi-Fi.")
+        }
+    }
+}
+
+/// Shown while Macapad can't see the Wi-Fi name: devices set to a place stay off until it can.
+struct LocationAccessNote: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        HStack(alignment: .top) {
+            Label("macOS only tells Macapad which Wi-Fi this Mac is on with Location access. Until then, devices set to a place stay off.", systemImage: "location.slash")
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(state.wifiAccess == .notAsked ? "Allow…" : "Open Settings") { WiFi.shared.requestAccess() }
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var state: AppState
 
@@ -458,16 +591,19 @@ struct SettingsView: View {
                         details: details(device),
                         off: state.offStatus(device),
                         scheduleId: device.scheduleId,
-                        followsLabel: "Always",
+                        placeId: device.wifiPlaceId,
+                        place: state.place(device.wifiPlaceId),
+                        followsDevice: false,
                         pausedUntil: device.pausedUntil,
                         setSchedule: { state.setSchedule(device, $0) },
+                        setPlace: { state.setPlace(device, $0) },
                         pause: { state.pause(device, until: $0) },
                         pickTime: { state.pausePrompt = PausePrompt(target: .device(device.id)) },
                         removeLabel: "Remove Device",
                         remove: { state.remove(device) }
                     )
                     ForEach(state.clients(of: device.id)) { client in
-                        clientRow(client, followsLabel: "Same as device")
+                        clientRow(client, followsDevice: true)
                             .padding(.leading, 20)
                     }
                 }
@@ -477,7 +613,7 @@ struct SettingsView: View {
             if !ownerClients.isEmpty {
                 Section {
                     ForEach(ownerClients) { client in
-                        clientRow(client, followsLabel: "Always")
+                        clientRow(client, followsDevice: false)
                     }
                 } header: {
                     Text("API key clients")
@@ -504,6 +640,38 @@ struct SettingsView: View {
                 Text("Schedules")
             } footer: {
                 Text("Pick a schedule next to a device or screen to set when it works, like an office macro pad that’s only on during work hours. Outside those hours its buttons do nothing.")
+            }
+
+            Section {
+                if !state.settings.wifiPlaces.isEmpty {
+                    LabeledContent("This Mac is on", value: state.wifiName
+                        ?? (state.wifiAccess == .allowed ? "No Wi-Fi" : "Can’t tell"))
+                }
+                ForEach(state.settings.wifiPlaces) { place in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(place.name)
+                            Text(place.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if place.contains(state.wifiName) {
+                            Text("Here now")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                        Button("Edit") { state.editingPlace = EditingPlace(place, isNew: false) }
+                    }
+                }
+                if !state.settings.wifiPlaces.isEmpty, state.wifiAccess != .allowed {
+                    LocationAccessNote(state: state)
+                }
+                Button("Add Wi-Fi Place…") { state.addPlace() }
+            } header: {
+                Text("Wi-Fi places")
+            } footer: {
+                Text("Pick a place next to a device or screen so it only works while this Mac is on that place’s Wi-Fi, like work devices that stop when you take your laptop home.")
             }
 
             UpdateSettings(state: state)
@@ -540,6 +708,16 @@ struct SettingsView: View {
                 onDelete: { state.deleteSchedule(item.schedule) }
             )
         }
+        .sheet(item: $state.editingPlace) { item in
+            PlaceEditor(
+                editing: item,
+                state: state,
+                usedBy: state.devices.filter { $0.wifiPlaceId == item.id }.count
+                    + state.clients.filter { $0.wifiPlaceId == item.id }.count,
+                onSave: state.savePlace,
+                onDelete: { state.deletePlace(item.place) }
+            )
+        }
         .sheet(item: $state.pausePrompt) { prompt in
             PauseUntilSheet(title: pauseTitle(prompt.target), date: prompt.date) { date in
                 switch prompt.target {
@@ -561,16 +739,19 @@ struct SettingsView: View {
         }
     }
 
-    private func clientRow(_ client: Client, followsLabel: String) -> CallerRow {
+    private func clientRow(_ client: Client, followsDevice: Bool) -> CallerRow {
         CallerRow(
             state: state,
             name: client.name,
             details: clientDetails(client),
             off: state.offStatus(client),
             scheduleId: client.scheduleId,
-            followsLabel: followsLabel,
+            placeId: client.wifiPlaceId,
+            place: state.place(client.wifiPlaceId ?? state.devices.first { $0.id == client.deviceId }?.wifiPlaceId),
+            followsDevice: followsDevice,
             pausedUntil: client.pausedUntil,
             setSchedule: { state.setSchedule(client, $0) },
+            setPlace: { state.setPlace(client, $0) },
             pause: { state.pause(client, until: $0) },
             pickTime: { state.pausePrompt = PausePrompt(target: .client(client.id)) },
             removeLabel: "Forget",
@@ -648,10 +829,14 @@ struct CallerRow: View {
     let details: String
     let off: OffStatus?
     let scheduleId: String?
-    /// What having no schedule of its own means: "Always", or "Same as device" for a client.
-    let followsLabel: String
+    let placeId: String?
+    /// The Wi-Fi place it works at, its own or its device's, for the "off" label.
+    let place: WiFiPlace?
+    /// A client under a paired device: having no schedule or place of its own means the device's.
+    let followsDevice: Bool
     let pausedUntil: Date?
     let setSchedule: (String?) -> Void
+    let setPlace: (String?) -> Void
     let pause: (Date?) -> Void
     let pickTime: () -> Void
     let removeLabel: String
@@ -675,7 +860,7 @@ struct CallerRow: View {
                 get: { scheduleId.flatMap { id in state.settings.schedules.contains { $0.id == id } ? id : nil } },
                 set: setSchedule
             )) {
-                Text(followsLabel).tag(String?.none)
+                Text(followsDevice ? "Same as device" : "Always").tag(String?.none)
                 ForEach(state.settings.schedules) { schedule in
                     Text(schedule.name).tag(Optional(schedule.id))
                 }
@@ -683,6 +868,20 @@ struct CallerRow: View {
             .labelsHidden()
             .fixedSize()
             .help("When this works")
+            if !state.settings.wifiPlaces.isEmpty {
+                Picker("Where", selection: Binding(
+                    get: { placeId.flatMap { id in state.settings.wifiPlaces.contains { $0.id == id } ? id : nil } },
+                    set: setPlace
+                )) {
+                    Text(followsDevice ? "Device’s Wi-Fi" : "Any Wi-Fi").tag(String?.none)
+                    ForEach(state.settings.wifiPlaces) { place in
+                        Text(place.label).tag(Optional(place.id))
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Which Wi-Fi this works on")
+            }
             Menu {
                 if let pausedUntil, pausedUntil > state.now {
                     Button("Resume") { pause(nil) }
@@ -703,6 +902,10 @@ struct CallerRow: View {
     }
 
     private func offLabel(_ off: OffStatus) -> String {
+        if off.reason == .wifi {
+            guard state.wifiAccess == .allowed else { return "Off: Macapad can’t see this Mac’s Wi-Fi" }
+            return "Off until this Mac is on \(place?.label ?? "its Wi-Fi")"
+        }
         let until = off.until.map { Availability.describe($0, now: state.now) } ?? "you turn it back on"
         return off.reason == .device ? "Paused until \(until)" : "Off until \(until)"
     }

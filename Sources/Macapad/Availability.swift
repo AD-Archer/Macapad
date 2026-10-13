@@ -79,10 +79,13 @@ struct OffStatus: Codable, Equatable, Sendable {
         case device
         /// Outside its schedule.
         case schedule
+        /// The Mac isn't on its Wi-Fi place's networks, or can't tell which Wi-Fi it's on.
+        case wifi
     }
 
     var reason: Reason
-    /// When it turns back on. Missing when it stays off until someone turns it back on.
+    /// When it turns back on. Missing when it stays off until someone turns it back on, or until
+    /// the Mac is back on the right Wi-Fi.
     var until: Date?
     var message: String
 }
@@ -96,8 +99,12 @@ enum Availability {
     }
 
     /// Nil when the caller can run macros now. Pausing the Mac stops everyone. A device's or
-    /// client's own pause stops it, and it follows its client's schedule, or else its device's.
-    static func check(_ caller: Caller?, settings: MacapadSettings, now: Date = Date()) -> OffStatus? {
+    /// client's own pause stops it, and it follows its client's schedule and Wi-Fi place, or else
+    /// its device's. `wifi` is only asked when there's a place to check.
+    static func check(
+        _ caller: Caller?, settings: MacapadSettings, now: Date = Date(),
+        wifi: () -> String? = { WiFi.shared.current }
+    ) -> OffStatus? {
         let device = caller?.device
         let client = caller?.client
 
@@ -106,25 +113,37 @@ enum Availability {
         let scheduleId = client?.scheduleId ?? device?.scheduleId
         let schedule = scheduleId.flatMap { id in settings.schedules.first { $0.id == id } }
         let outsideSchedule = schedule.map { !$0.isOpen(at: now) } ?? false
-        guard macPause != nil || ownPause != nil || outsideSchedule else { return nil }
+        let placeId = client?.wifiPlaceId ?? device?.wifiPlaceId
+        let place = placeId.flatMap { id in settings.wifiPlaces.first { $0.id == id } }
+        let network = place.flatMap { _ in wifi() }
+        let awayFromPlace = place.map { !$0.contains(network) } ?? false
+        guard macPause != nil || ownPause != nil || outsideSchedule || awayFromPlace else { return nil }
 
-        // On again once every pause is over and the schedule is open.
+        // On again once every pause is over and the schedule is open. There's no knowing when
+        // the Mac will be back on the right Wi-Fi.
         var until: Date?
         let pausesEnd = [macPause, ownPause].compactMap { $0 }.max() ?? now
-        if !isIndefinite(pausesEnd) {
+        if !isIndefinite(pausesEnd), !awayFromPlace {
             until = schedule.map { $0.nextOpen(after: pausesEnd) } ?? pausesEnd
         }
 
         let when = until.map { "until \(describe($0, now: now))" }
+        // A pause says when it ends, even when the Wi-Fi keeps it off after that.
+        let pauseWhen = when ?? (isIndefinite(pausesEnd) ? nil : "until \(describe(pausesEnd, now: now))")
         if macPause != nil {
             let name = settings.displayName
-            return OffStatus(reason: .mac, until: until, message: when.map { "\(name) is paused \($0)" }
+            return OffStatus(reason: .mac, until: until, message: pauseWhen.map { "\(name) is paused \($0)" }
                 ?? "\(name) is paused. Turn it back on from the Mac’s menu bar.")
         }
         let who = client?.name ?? device?.name ?? "This device"
         if ownPause != nil {
-            return OffStatus(reason: .device, until: until, message: when.map { "\(who) is paused \($0)" }
+            return OffStatus(reason: .device, until: until, message: pauseWhen.map { "\(who) is paused \($0)" }
                 ?? "\(who) is paused. Turn it back on in Macapad’s settings on the Mac.")
+        }
+        if let place, awayFromPlace {
+            let blind = network != nil || WiFi.shared.access == .allowed ? ""
+                : " Macapad can’t see which Wi-Fi the Mac is on. Allow Location for Macapad in System Settings."
+            return OffStatus(reason: .wifi, until: nil, message: "\(who) only works on \(place.label).\(blind)")
         }
         let name = schedule?.name ?? "its schedule"
         return OffStatus(reason: .schedule, until: until, message: when.map { "Outside \(name). \(who) is off \($0)" }

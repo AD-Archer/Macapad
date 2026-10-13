@@ -507,7 +507,7 @@ just install</code></pre></div>
         <li>Send <code>{"type": "run", "ref": "&lt;anything&gt;", "steps": [...]}</code>. You get <code>{"type": "result", "ref", "ok", "error", "off"?}</code>.</li>
         <li>Send <code>{"type": "ping"}</code> about every 25 seconds so proxies keep it open. You get <code>{"type": "pong"}</code>.</li>
       </ol>
-      <div class="callout"><code>off</code> means nothing ran because you’re paused or outside your schedule. If the device is removed in Settings, the connection closes the next time it sends anything.</div>
+      <div class="callout"><code>off</code> means nothing ran because you’re paused, outside your schedule, or the Mac isn’t on your Wi-Fi place. If the device is removed in Settings, the connection closes the next time it sends anything.</div>
       <pre><code>const ws = new WebSocket(`${base.replace(/^http/, "ws")}/api/ws?token=${token}`);
 ws.onmessage = (e) =&gt; {
   const msg = JSON.parse(e.data);
@@ -575,10 +575,10 @@ ws.onopen = () =&gt; {
       <p>With the owner token, say who’s calling, or you get <code>400</code>:</p>
       <pre><code>X-Macapad-Client: Office display</code></pre>
       <p class="hint">On the WebSocket, use <code>?client=</code>. Percent-encode names that aren’t plain ASCII.</p>
-      <p>Each name shows up in Settings with its own schedule and pause, so one server can drive several screens with different hours.</p>
+      <p>Each name shows up in Settings with its own schedule, Wi-Fi place and pause, so one server can drive several screens with different hours.</p>
       <details>
         <summary>Paired devices and client ids</summary>
-        <p>Paired devices already have a name, so naming is optional. One that sends it gets a named client under the device, which follows the device’s schedule unless you pick another.</p>
+        <p>Paired devices already have a name, so naming is optional. One that sends it gets a named client under the device, which follows the device’s schedule and Wi-Fi place unless you pick others.</p>
         <p>Add <code>X-Macapad-Client-Id</code> (or <code>?clientId=</code>), a stable id, to keep a client’s settings when it’s renamed.</p>
       </details>
     </section>
@@ -1171,7 +1171,7 @@ const API = [
   ["POST", "/api/pair/qr", "<code>{key, name, app?}</code>, no token", "<code>{status: \"approved\", token, device, mac}</code>. See QR pairing."],
   ["GET", "/api/me", "none", "<code>{owner, device?, client?, mac, off?}</code>: who your token belongs to, and the client you named. <code>off</code> is there while it can’t run anything.", "/api/me"],
   ["DELETE", "/api/me", "none", "Unpairs this device. The owner token can’t."],
-  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished. <code>423</code> with <code>{error, off}</code> while paused or outside its schedule."],
+  ["POST", "/api/run", "<code>{steps: [...]}</code>", "<code>{ok: true}</code> or <code>{ok: false, error}</code>, once every step has finished. <code>423</code> with <code>{error, off}</code> while paused, outside its schedule, or off its Wi-Fi place."],
   ["GET", "/api/actions", "none", "<code>{actions: [...]}</code>: built-ins, then yours", "/api/actions"],
   ["POST", "/api/actions", "an action", "The saved action. Adds one, or replaces the same <code>id</code>."],
   ["DELETE", "/api/actions/:id", "none", "<code>{ok: true}</code>. Built-ins can’t be deleted."],

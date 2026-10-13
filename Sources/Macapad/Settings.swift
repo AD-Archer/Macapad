@@ -39,6 +39,8 @@ struct MacapadSettings: Codable, Equatable, Sendable {
     var pausedUntil: Date?
     /// Hours devices can be set to work in. Devices without one work all the time.
     var schedules: [Schedule] = [.workHours]
+    /// Wi-Fi networks devices can be set to work on. Devices without one work on any.
+    var wifiPlaces: [WiFiPlace] = []
     /// Where the weather is for, like "Burlington, VT". Empty = wherever the Mac's internet connection says.
     var weatherPlace = ""
     /// Ask GitHub every few hours whether there's a newer Macapad.
@@ -88,6 +90,7 @@ struct MacapadSettings: Codable, Equatable, Sendable {
         docsEnabled = try c.decodeIfPresent(Bool.self, forKey: .docsEnabled) ?? d.docsEnabled
         pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
         schedules = try c.decodeIfPresent([Schedule].self, forKey: .schedules) ?? d.schedules
+        wifiPlaces = try c.decodeIfPresent([WiFiPlace].self, forKey: .wifiPlaces) ?? d.wifiPlaces
         weatherPlace = try c.decodeIfPresent(String.self, forKey: .weatherPlace) ?? d.weatherPlace
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         installUpdates = try c.decodeIfPresent(Bool.self, forKey: .installUpdates) ?? d.installUpdates

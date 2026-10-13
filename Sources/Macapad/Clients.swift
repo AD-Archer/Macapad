@@ -20,6 +20,9 @@ struct Client: Codable, Sendable, Identifiable, Equatable, ResponseEncodable {
     /// The schedule (in settings) it works during. Nil = the same as its device
     /// (all the time, for the owner token).
     var scheduleId: String?
+    /// The Wi-Fi place (in settings) it works at. Nil = the same as its device
+    /// (any network, for the owner token).
+    var wifiPlaceId: String?
     /// While set and in the future, it can't run anything. Far future = until turned back on.
     var pausedUntil: Date?
 }
@@ -138,10 +141,10 @@ final class Clients: @unchecked Sendable {
         }
     }
 
-    /// Clients on a schedule that's being deleted go back to following their device.
-    func clearSchedule(_ scheduleId: String) {
+    /// Clients on a schedule or Wi-Fi place that's being deleted go back to following their device.
+    func clear(_ field: WritableKeyPath<Client, String?>, matching id: String) {
         mutate { clients in
-            for i in clients.indices where clients[i].scheduleId == scheduleId { clients[i].scheduleId = nil }
+            for i in clients.indices where clients[i][keyPath: field] == id { clients[i][keyPath: field] = nil }
         }
     }
 
